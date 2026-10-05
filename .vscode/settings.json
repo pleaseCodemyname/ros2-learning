@@ -1,0 +1,8 @@
+{
+    "python.analysis.extraPaths":[ // Pylance가 import를 찾을 때 추가로 뒤질 경로.
+        "/opt/ros/jazzy/lib/python3.12/site-packages" 
+    ],
+    "python.autoComplete.extraPaths": [ // 자동완성용 경로. msg.를 쳤을 때 linear, angular가 뜨게됨.
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ]
+}
