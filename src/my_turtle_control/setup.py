@@ -29,6 +29,7 @@ setup(
             'circle_publisher = my_turtle_control.circle_publisher:main',
             'pose_subscriber = my_turtle_control.pose_subscriber:main',
             'wall_avoider = my_turtle_control.wall_avoider:main',
+            'turtle_tf_broadcaster = my_turtle_control.turtle_tf_broadcaster:main',
         ],
     },
 )
