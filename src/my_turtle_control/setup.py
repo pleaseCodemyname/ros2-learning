@@ -12,6 +12,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', 
             ['launch/turtle_control_launch.py']),
+        ('share/' + package_name + '/launch', 
+            ['launch/turtle_follow_launch.py']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -30,6 +32,7 @@ setup(
             'pose_subscriber = my_turtle_control.pose_subscriber:main',
             'wall_avoider = my_turtle_control.wall_avoider:main',
             'turtle_tf_broadcaster = my_turtle_control.turtle_tf_broadcaster:main',
+            'turtle_follower = my_turtle_control.turtle_follower:main',
         ],
     },
 )

@@ -9,10 +9,11 @@ from rclpy.node import Node
 class TurtleTFBroadcaster(Node):
     def __init__(self):
         super().__init__('turtle_tf_broadcaster')
+        self.turtlename = self.declare_parameter('turtlename', 'turtle1').get_parameter_value().string_value
         self.tf_broadcaster = TransformBroadcaster(self)
         self.subscription = self.create_subscription(
                     Pose,
-                    'turtle1/pose',
+                    f'{self.turtlename}/pose',
                     self.pose_callback,
                     10)
         self.get_logger().info('TF Broadcaster Node has been started.')
@@ -22,7 +23,7 @@ class TurtleTFBroadcaster(Node):
 
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = 'world'
-        t.child_frame_id = 'turtle1'
+        t.child_frame_id = self.turtlename
 
         t.transform.translation.x = msg.x
         t.transform.translation.y = msg.y
