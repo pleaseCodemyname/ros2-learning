@@ -7,13 +7,13 @@ from rclpy.node import Node
 
 class WallAvoider(Node):
     def __init__(self):
-        super().__init__('wall_avoider')
-        self.publisher_ = self.create_publisher(Twist, 'turtle1/cmd_vel', 10)
+        super().__init__('wall_avoider') # Node의 준비를 하고 이름을 'wall_avoider'로 설정
+        self.publisher_ = self.create_publisher(Twist, 'turtle1/cmd_vel', 10) # pub: 양식, 게시판, 값 (게시판에 올림), 만든다
         self.subscription = self.create_subscription(
             Pose,
             'turtle1/pose',
             self.pose_callback,
-            10)
+            10) # sub: 양식, 게시판, 콜백함수, 값 (게시판에서 읽음)
         self.get_logger().info('Wall Avoider Node has been started.')
 
     def pose_callback(self, msg):
@@ -31,12 +31,12 @@ class WallAvoider(Node):
             cmd.angular.z = 0.0   # No turn
             self.get_logger().info('Moving forward.', throttle_duration_sec=1.0)
 
-        self.publisher_.publish(cmd)
+        self.publisher_.publish(cmd) # 쓴다
 
 
 def main(args=None):
-    rclpy.init(args=args)
-    wall_avoider = WallAvoider()
+    rclpy.init(args=args) # ROS를 켠다 (명령 줄 옵션을 넘김)
+    wall_avoider = WallAvoider() # Node 객체 생성 -> __init__() 실행
     try:
         rclpy.spin(wall_avoider)
     except (KeyboardInterrupt, ExternalShutdownException):

@@ -33,6 +33,8 @@ setup(
             'wall_avoider = my_turtle_control.wall_avoider:main',
             'turtle_tf_broadcaster = my_turtle_control.turtle_tf_broadcaster:main',
             'turtle_follower = my_turtle_control.turtle_follower:main',
+            'assignment = my_turtle_control.assignment:main', 
+            'speed_changer = my_turtle_control.speed_changer:main'
         ],
     },
 )
