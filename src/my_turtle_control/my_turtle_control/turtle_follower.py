@@ -10,7 +10,7 @@ class TurtleFollower(Node):
     def __init__(self):
         super().__init__('turtle_follower')
         self.publisher = self.create_publisher(Twist, 'turtle2/cmd_vel', 10) # 움직일 대상이 turtle2이기 때문에
-        self.tf_buffer = Buffer()
+        self.tf_buffer = Buffer() # tf에게 turtle2 기준 turtle1의 위치를 물어본다
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.timer = self.create_timer(0.1, self.timer_callback) # 초당 10번 호출
 

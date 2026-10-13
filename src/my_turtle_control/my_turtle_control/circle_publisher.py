@@ -8,7 +8,7 @@ class CirclePublisher(Node):
         super().__init__('circle_publisher')
         self.publisher_ = self.create_publisher(Twist, 'turtle1/cmd_vel', 10) # Twist(토픽으로 주고받는 데이터 양식): 로봇에게 내리는 명령, 'turtle1/cmd_vel'이라는 토픽으로 발행, 10은 큐 사이즈(메시지 버퍼링) 의미
         timer_period = 0.1  # seconds
-        self.timer = self.create_timer(timer_period, self.timer_callback)
+        self.timer = self.create_timer(timer_period, self.timer_callback) # 해당 시간마다 해당 함수를 불러달라
         self.get_logger().info('Circle Publisher Node has been started.')
 
     def timer_callback(self):

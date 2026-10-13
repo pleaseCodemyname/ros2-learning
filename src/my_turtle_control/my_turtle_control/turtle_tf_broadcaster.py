@@ -22,11 +22,11 @@ class TurtleTFBroadcaster(Node):
         t = TransformStamped()
 
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'world'
-        t.child_frame_id = self.turtlename
+        t.header.frame_id = 'world' # 어디서부터 재는가
+        t.child_frame_id = self.turtlename # 누구의 위치인가
 
-        t.transform.translation.x = msg.x
-        t.transform.translation.y = msg.y
+        t.transform.translation.x = msg.x # 가로로 얼마
+        t.transform.translation.y = msg.y # 세로로 얼마
         t.transform.translation.z = 0.0
 
         t.transform.rotation.x = 0.0
