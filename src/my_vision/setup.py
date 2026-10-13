@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'image_info = my_vision.image_info:main'
+            'image_info = my_vision.image_info:main',
+            'image_viewer = my_vision.image_viewer:main',
         ],
     },
 )
