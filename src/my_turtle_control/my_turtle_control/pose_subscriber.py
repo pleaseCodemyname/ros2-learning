@@ -4,7 +4,7 @@ from turtlesim.msg import Pose # Pose "나 지금 여기있다"라는 메시지 
 from rclpy.node import Node
 
 class PoseSubscriber(Node): # Node의 기능을 상속받아 PoseSubscriber라는 클래스를 정의
-    def __init__(self): # self: 지금 다루고 있는 이 객체 자신, 클래스는 설계도이며, 객체는 그것으로 찍어낸 실물임. 설계도에 적힌 함수는 "어느 실물에 대해 일하는지"를 알아야 함. 그 실물을 넘겨받는 지리가 self임.
+    def __init__(self): # self: 지금 다루고 있는 이 객체 자신, 클래스는 설계도이며, 객체는 그것으로 찍어낸 실물임. 설계도에 적힌 함수는 "어느 실물에 대해 일하는지"를 알아야 함. 그 실물을 넘겨받는 자리가 self임.
         super().__init__('pose_subscriber') # 부모의 __init__()를 호출하여 노드 이름을 pose_subscriber로 설정
         self.subscription = self.create_subscription(
             Pose, # Pose: 로봇이 알려주는 상태 메시지 형식

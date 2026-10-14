@@ -19,7 +19,7 @@ class WallAvoider(Node):
     def pose_callback(self, msg):
         cmd = Twist()
         facing_right = msg.x > 9.5 and math.cos(msg.theta) > 0 # math.cos(msg.theta) > 0: 오른쪽을 보고 있는가
-        facing_left = msg.x < 1.5 and math.cos(msg.theta) < 0 # math_cos(msg.theta) < 0: 왼쪽을 보고 있는가
+        facing_left = msg.x < 1.5 and math.cos(msg.theta) < 0 # math.cos(msg.theta) < 0: 왼쪽을 보고 있는가
         facing_top = msg.y > 9.5 and math.sin(msg.theta) > 0
         facing_bottom = msg.y < 1.5 and math.sin(msg.theta) < 0
         if facing_right or facing_left or facing_top or facing_bottom:

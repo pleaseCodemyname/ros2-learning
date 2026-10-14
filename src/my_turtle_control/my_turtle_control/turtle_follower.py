@@ -9,7 +9,7 @@ from geometry_msgs.msg import Twist
 class TurtleFollower(Node):
     def __init__(self):
         super().__init__('turtle_follower')
-        self.publisher = self.create_publisher(Twist, 'turtle2/cmd_vel', 10) # 움직일 대상이 turtle2이기 때문에
+        self.publisher_ = self.create_publisher(Twist, 'turtle2/cmd_vel', 10) # 움직일 대상이 turtle2이기 때문에
         self.tf_buffer = Buffer() # tf에게 turtle2 기준 turtle1의 위치를 물어본다
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.timer = self.create_timer(0.1, self.timer_callback) # 초당 10번 호출
@@ -26,7 +26,7 @@ class TurtleFollower(Node):
         cmd = Twist()
         cmd.linear.x = 0.5 * math.hypot(x, y) # 0.5 * 1.0 *: 얼마나 민감하게 반응할지 정하는 배율. 
         cmd.angular.z = 1.0 * math.atan2(y, x) # 거리와 각도에 비례해서 속도를 정하므로, 가까워 질수록 천천히 움직이다가 멈춤
-        self.publisher.publish(cmd)
+        self.publisher_.publish(cmd)
 
 def main(args=None):
     rclpy.init(args=args)

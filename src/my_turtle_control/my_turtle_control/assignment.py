@@ -16,9 +16,9 @@ class HalfTurtleSubscriber(Node): # HalfTurtleSubscriber 클래스 생성 (Node 
     def pose_callback(self, msg): # pose_callback 함수 생성
         half_right = msg.x > 5.54
         if half_right:
-            self.get_logger().info("Facing half_right", throttle_duration_sec=1.0)
+            self.get_logger().info("In right half", throttle_duration_sec=1.0)
         else:
-            self.get_logger().info("Facing half_left", throttle_duration_sec=1.0)
+            self.get_logger().info("In left half", throttle_duration_sec=1.0)
         # 1초에 한 번씩 해당 로그를 찍을꺼임, 콜백 자체는 1초에 약 60번 돌고, 로그만 1초에 한 번
     
 
