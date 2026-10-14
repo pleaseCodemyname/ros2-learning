@@ -30,6 +30,11 @@
 - 빈 파일에서 노드 직접 작성
   - assignment (노드 이름 half_turtle): pose 구독, 거북이가 창의 왼쪽/오른쪽 절반 중 어디에 있는지 로그 출력
   - speed_changer: pose 구독 + cmd_vel 발행, 왼쪽 절반이면 빠르게, 오른쪽 절반이면 천천히 직진
+- my_vision 패키지 (OpenCV 연동, 영상은 `ros2 run image_tools cam2image --ros-args -p burger_mode:=true`로 /image에 발행)
+  - image_info: /image 구독, 영상 크기와 인코딩 출력
+  - image_viewer: cv_bridge로 OpenCV 이미지로 바꿔 창에 표시 (topic 파라미터로 볼 토픽 선택, 기본값 image)
+  - gray_converter: /image 구독 → cv2.cvtColor로 흑백 변환 → /image_gray 발행
+- 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
 
@@ -52,6 +57,15 @@
 - launch: ros2 run 여러 개를 한 번에 실행
 - tf: frame은 "누구 기준으로 재는가". /tf 토픽에 "world 기준으로 나는 여기"를 올리면(broadcaster) 다른 조합은 계산해 준다(listener, lookup_transform)
   - pose의 x, y는 창 기준(가로, 세로). 거북이 기준 tf의 x, y는 앞쪽, 왼쪽
+- colcon: 여러 패키지를 모아서 빌드하는 도구. 반드시 ~/ros2_ws에서 실행 (src 안에서 하면 src/build 등이 잘못 생김)
+
+### OpenCV / 영상
+- cv_bridge는 포장 뜯기와 다시 포장하기: imgmsg_to_cv2(msg, 'bgr8')는 ROS → OpenCV, cv2_to_imgmsg(사진, 'mono8')는 OpenCV → ROS
+  - 인코딩은 "이 방식으로 꺼내 달라"는 주문. mono8 메시지를 bgr8로 꺼내면 밝기 하나를 세 칸에 복사해 준다
+- shape: 컬러는 (세로, 가로, 3) 점 하나에 파랑/초록/빨강, 흑백은 (세로, 가로) 점 하나에 밝기 하나
+- cv2.cvtColor(사진, cv2.COLOR_BGR2GRAY): 색 방식 바꾸기. 원래 사진은 그대로, 새 사진이 나온다
+- 흑백 변환 이유: 윤곽선, QR/마커, 선 따라가기처럼 밝기 차이만 보는 처리가 많고 데이터가 1/3로 준다. 색이 중요한 일(빨간 공 찾기)에는 안 쓴다
+- 받고 → 가공하고 → 올리는 노드의 틀: 가공 줄만 바꾸면 다른 처리(나중에는 AI 모델)가 된다
 
 ### Python
 - def는 만들기, 이름()은 실행. 괄호 없이 쓰면 함수 그 자체 (콜백을 넘길 때)
@@ -65,6 +79,8 @@
 - 맨 마지막 줄(무엇이 문제인지)과, 아래에서부터 처음 만나는 내 파일의 줄 번호(어디서 났는지)만 본다
 - `missing ... argument` / `takes N ... but M were given`: 괄호 안에 넘긴 값의 개수가 안 맞음
 - `has no attribute`: self.에 넣어 둔 적이 없거나, 함수 뒤에 괄호가 빠짐
+- `is not defined`: 이름 앞의 `무엇.`(cv2., self.bridge. 등)이 빠짐
+- `required to be an integer`: 정해진 이름(cv2.COLOR_BGR2GRAY)을 따옴표로 감싸 문자열로 넘김
 - 고쳤는데 그대로면 빌드했는지부터 확인
 
 ## 다음 목표
