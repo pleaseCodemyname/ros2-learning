@@ -34,6 +34,9 @@
   - image_info: /image 구독, 영상 크기와 인코딩 출력
   - image_viewer: cv_bridge로 OpenCV 이미지로 바꿔 창에 표시 (topic 파라미터로 볼 토픽 선택, 기본값 image)
   - gray_converter: /image 구독 → cv2.cvtColor로 흑백 변환 → /image_gray 발행
+- 기초 다지기 문제 (drills/ 폴더, 빌드 없이 `python3 drills/파일.py`로 실행)
+  - d01 빈 노드, d02 talker(타이머 + String Publisher), d03 listener(String Subscriber), d04 counter(self.count로 0, 1, 2... Int32 발행)
+  - 다음: d05 judge(/number 구독해서 짝수/홀수 판단)부터. 설계 문제까지 풀면 OpenCV 수업 5로 복귀
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -52,7 +55,15 @@
 - 콜백: 구독한 게시판에 새 글이 올 때(타이머는 정한 시간마다) 실행되는 함수
   - 내 코드가 부르지 않고 spin이 부른다. msg도 spin이 넣어 준다
   - 실행 횟수는 올리는 쪽이 정한다 (turtlesim의 pose는 1초에 약 60번)
+  - 정의: 내가 직접 부르지 않고 "그 일이 생기면 불러 줘"라고 맡겨 둔 함수. 웹의 `button.addEventListener('click', handleClick)`의 handleClick과 같다 (브라우저 = spin)
+  - 쓰는 이유는 반복이 아니라 "언제 생길지 내가 모르는 일"에 반응하려고. 반복은 일이 계속 생기니까 따라오는 결과
+  - 맡기는 곳은 두 곳뿐: create_subscription(글이 오면, 콜백은 (self, msg)), create_timer(시간이 되면, 콜백은 (self)). Publisher에는 콜백을 넣지 않는다 (우체통일 뿐)
+  - 타이머 콜백의 msg는 받은 게 아니라 콜백 안에서 String()/Int32()로 직접 만든 것
 - spin: 글을 기다리다가 콜백을 불러 주는 것. 글이 안 오면 에러 없이 조용히 기다린다
+  - spin(counter)는 counter 안에 등록된 알람/구독 목록을 보면서, 다음 알람까지 잠들었다가 때가 되면(또는 글이 오면) 깨서 콜백을 부른다. Ctrl+C 전까지 끝나지 않는다
+  - 직접 sleep으로 기다리면 그동안 글을 못 받는다. 그래서 타이머도 spin에게 맡긴다
+- throttle_duration_sec: 콜백 안의 로그만 줄이는 옵션 (콜백 횟수는 그대로). 1초에 수십 번 불리는 콜백(pose, image)에만 쓴다. 1초에 1번인데 쓰면 로그가 건너뛰어진다
+- 노드 틀 + 빈칸 채울 때 질문 3개: Q1 내보내는 게 있나 → Publisher, Q2 알아야 할 게 있나 → Subscriber, Q3 받는 것 없이 반복할 일이 있나 → 타이머. 기억할 값은 __init__에서 self.이름 = 처음값 (이름은 내가 짓는 것, 예약어 아님)
 - 노드 파일의 틀: import / class(Node 상속) / __init__(한 번: Publisher, Subscriber 생성) / 콜백(매번) / main(init → 노드 생성 → spin → 정리)
 - 패키지와 빌드: 고치는 곳은 src, 실행되는 곳은 install. 고치면 colcon build
   - 새 노드는 setup.py의 console_scripts에 `'이름 = 패키지.파일:main'` 등록
