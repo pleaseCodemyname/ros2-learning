@@ -36,7 +36,13 @@
   - gray_converter: /image 구독 → cv2.cvtColor로 흑백 변환 → /image_gray 발행
 - 기초 다지기 문제 (drills/ 폴더, 빌드 없이 `python3 drills/파일.py`로 실행)
   - d01 빈 노드, d02 talker(타이머 + String Publisher), d03 listener(String Subscriber), d04 counter(self.count로 0, 1, 2... Int32 발행)
-  - 다음: d05 judge(/number 구독해서 짝수/홀수 판단)부터. 설계 문제까지 풀면 OpenCV 수업 5로 복귀
+  - d05 judge(/number 구독, 짝수/홀수 판단), d06 doubler(/number 구독 → ×2 → /doubled 발행, Sub+Pub 한 노드)
+  - d07 stopper(설계 문제: 토픽/양식을 ros2 topic list/info, ros2 interface show로 직접 찾음. x > 9면 멈춤), d08 arrive(self.logged_count 수첩으로 "도착" 로그를 딱 한 번)
+  - 기초 다지기 완료 → 다음은 OpenCV 수업 5 (마스크의 흰 부분 위치 계산)
+  - 자주 하는 실수: `__init` 오타, 따옴표(문자열 vs 객체: spin('judge')), 봉투(msg)와 숫자(msg.data) 혼동, 한 번(__init__)/매번(콜백) 자리 바꿈, Publisher에 콜백 넣기
+  - 보낼 때는 봉투에 넣고(Int32() → .data = → publish(봉투)), 받을 때는 봉투에서 꺼낸다(msg.data). 숫자만 publish하면 TypeError. 칸 이름은 `ros2 interface show <양식>`으로 확인 (Pose는 msg.x, Twist는 cmd.linear.x)
+  - 토픽은 노드가 켜져 있어야 보인다 (중앙 서버 없음). ros2 topic 명령은 어느 폴더에서 쳐도 같다
+  - publish는 배달만 맡기고 바로 다음 줄로 간다. 구독자가 없으면 버려지고, 늦게 켠 구독자는 지난 글을 못 받는다
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
