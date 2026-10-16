@@ -38,8 +38,15 @@
   - d01 빈 노드, d02 talker(타이머 + String Publisher), d03 listener(String Subscriber), d04 counter(self.count로 0, 1, 2... Int32 발행)
   - d05 judge(/number 구독, 짝수/홀수 판단), d06 doubler(/number 구독 → ×2 → /doubled 발행, Sub+Pub 한 노드)
   - d07 stopper(설계 문제: 토픽/양식을 ros2 topic list/info, ros2 interface show로 직접 찾음. x > 9면 멈춤), d08 arrive(self.logged_count 수첩으로 "도착" 로그를 딱 한 번)
-  - 기초 다지기 완료 → 다음은 OpenCV 수업 5 (마스크의 흰 부분 위치 계산)
+  - d09 find_center(ROS 없이 마스크의 흰 칸 → cx, cy), d10 follow(/image Sub + /turtle1/cmd_vel Pub, 흰 덩어리 cx로 왼쪽 회전/직진/오른쪽 회전 세 구역)
+    - d10의 콜백은 앞쪽 CV 세계(사진 → cx)와 뒤쪽 거북이 세계(cx → 명령, d07과 같은 틀)가 숫자 cx 하나로만 이어진다
+    - cam2image는 1초에 약 30장 → 콜백도 30번, 매번 새 사진만 보고 새로 판단
+    - cam2image 영상은 거북이와 상관없어서 거북이가 돌아도 cx가 안 바뀐다. 진짜 로봇은 카메라가 몸에 붙어 있어 내 움직임이 다시 입력을 바꾼다(피드백 고리) → Gazebo에서 다룰 예정
+  - OpenCV가 바닥부터 비어 있다고 느껴 OpenCV 기초 사다리(c01~)로 다시 시작. 파일마다 "예상 먼저 적기 → 실행 → 확인"
+    - c01 숫자 표/shape, c02 범위 칠하기, c03 BGR, c04 흑백, c05 마스크, c06 nonzero/cx 완료
+    - 다음: c07 진짜 햄버거 영상 한 장에 c01~c06 적용 → 그 뒤 d10으로 돌아가기
   - 자주 하는 실수: `__init` 오타, 따옴표(문자열 vs 객체: spin('judge')), 봉투(msg)와 숫자(msg.data) 혼동, 한 번(__init__)/매번(콜백) 자리 바꿈, Publisher에 콜백 넣기
+  - 게시판 이름(주소, URL 경로 /image)과 양식 이름(스키마, sensor_msgs/msg/Image)은 다르다. create_subscription(양식, '게시판 이름', ...). `ros2 topic list -t`의 왼쪽이 게시판, [ ] 안이 양식. 이름은 대소문자까지 같아야 하고, 틀리면 에러 없이 아무것도 안 온다
   - 보낼 때는 봉투에 넣고(Int32() → .data = → publish(봉투)), 받을 때는 봉투에서 꺼낸다(msg.data). 숫자만 publish하면 TypeError. 칸 이름은 `ros2 interface show <양식>`으로 확인 (Pose는 msg.x, Twist는 cmd.linear.x)
   - 토픽은 노드가 켜져 있어야 보인다 (중앙 서버 없음). ros2 topic 명령은 어느 폴더에서 쳐도 같다
   - publish는 배달만 맡기고 바로 다음 줄로 간다. 구독자가 없으면 버려지고, 늦게 켠 구독자는 지난 글을 못 받는다
@@ -93,6 +100,18 @@
   - 색 순서는 BGR: 빨강은 [0, 0, 255]
   - 흑백 밝기 = 파랑×0.114 + 초록×0.587 + 빨강×0.299 (사람 눈 기준이라 초록이 가장 밝다). 그래서 흑백으로는 색 구분이 어렵다
   - cv2.inRange(사진, 아래한계, 위한계)로 마스크: 숫자 3개가 모두 범위 안이면 255, 아니면 0. shape는 흑백과 같다
+- OpenCV 기초 사다리 (drills/c01~c06)
+  - 만들기 vs 고르기: np.zeros((크기), np.uint8)는 새 표 만들기(소괄호 두 겹, 크기 숫자), img[a:b, c:d]는 있는 표에서 범위 고르기(대괄호, 콜론). np.array([값들])는 준 값을 그대로 담기(lower, upper)
+  - 모양과 숫자 종류는 따로 정한다: (줄, 칸)이면 흑백, (줄, 칸, 3)이면 컬러. np.uint8은 둘 다 항상 붙인다(0~255 정수, 1바이트). 빠지면 소수(0., CV_64F)가 돼서 cvtColor 등이 에러
+  - 대괄호 겹 수 = shape 숫자 개수 (JSON 중첩 배열과 같음)
+  - 세로/가로라는 말은 "선 모양"과 "방향"이 섞여서 헷갈린다 → img[위에서 몇 번째, 왼쪽에서 몇 번째]로 읽는다. 범위의 개수는 끝 − 시작
+  - 색은 외우지 않는다. 기억할 것은 B, G, R 순서 / 0은 꺼짐, 255는 다 켬 / 세 개가 같으면 회색. 빛은 섞으면 밝아진다([0,255,255] = 노랑, 다 켜면 흰색). 실제 값은 print(frame[y, x])로 재서 정한다
+  - 흑백은 색을 밝기 하나로 뭉갠다(파랑 29, 빨강 76, 초록 150). 빨강과 어두운 회색이 같은 값이 될 수 있어서 색 찾기는 컬러 사진에 inRange
+  - 마스크: lower/upper는 기준표(놀이기구 키 제한), 마스크는 칸마다 찍은 O/X 도장(255/0). 기준 숫자는 마스크에 들어가지 않는다. shape는 흑백과 같다. 칸의 색은 그대로인데 기준이 바뀌면 결과가 바뀐다(lower를 낮추면 너그러워져 O가 늘어남). 흰색은 R이 커도 upper의 B, G에서 탈락
+  - 마스크는 그냥 흑백 표라 np.zeros로 직접 만들 수도 있다. inRange는 만드는 방법 중 하나
+  - np.nonzero(mask)는 책 읽듯 훑어 흰 칸 위치를 찾고, (줄, 칸) 짝을 앞 숫자끼리(ys), 뒤 숫자끼리(xs) 나눠 준다. cx = xs.mean()으로 숫자 하나를 만들어야 if로 판단할 수 있다. cy는 위아래 판단이 필요할 때만
+  - 평균은 멀리 떨어진 외톨이 칸 하나에 끌려간다(덩어리가 없는 곳이 cx가 될 수 있음). 실제 사진의 잡티 문제
+  - 색 고르기는 데모용 도구. 나중엔 AI 모델이 물체 위치를 주고, 노드 틀(사진 → 위치 → cx → 판단 → 명령)은 그대로다
   - waitKey(0)은 창에서 키를 눌러야 끝난다. X로 닫으면 안 꺼짐. 끌 때는 Ctrl+C (Ctrl+Z는 일시정지일 뿐, 그땐 pkill -9 -f 파일이름)
 
 ### Python
@@ -109,6 +128,12 @@
 - `has no attribute`: self.에 넣어 둔 적이 없거나, 함수 뒤에 괄호가 빠짐
 - `is not defined`: 이름 앞의 `무엇.`(cv2., self.bridge. 등)이 빠짐
 - `required to be an integer`: 정해진 이름(cv2.COLOR_BGR2GRAY)을 따옴표로 감싸 문자열로 넘김
+- `setting an array element with a sequence`: 칸 하나에 목록(숫자 여러 개)을 넣음. 넣는 숫자 개수 ≠ 칸에 들어가는 숫자 개수 → 원래 의도(흑백/컬러) 쪽에 맞춘다
+- `too many indices ... 1-dimensional`: 표가 생각보다 작게 만들어짐 (np.zeros 대신 np.array를 씀 등)
+- `Cannot interpret '300' as a data type`: np.zeros의 크기 숫자를 소괄호로 안 묶음
+- `missing required argument 'mat'`: imshow에 창 이름이 빠짐. imshow('창 이름', 사진). 창 이름이 같으면 덮어쓴다
+- `Unsupported depth ... CV_64F` / inRange `Sizes of input arguments do not match`: 사진이 uint8이 아니거나, 사진(흑백)과 lower/upper(숫자 3개)의 개수가 안 맞음. 에러 난 줄이 아니라 사진 만드는 줄이 원인일 수 있다
+- 창이 안 뜨고 로그도 없으면: 보내는 노드(cam2image)가 켜져 있는지부터. spin은 글이 안 오면 조용히 기다린다
 - 고쳤는데 그대로면 빌드했는지부터 확인
 
 ## 다음 목표
