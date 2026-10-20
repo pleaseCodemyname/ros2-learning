@@ -6,3 +6,6 @@ typings/
 
 # Ignore practical files
 practice*
+
+# Ignore screenshots/images
+*.png
