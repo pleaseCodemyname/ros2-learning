@@ -1,0 +1,9 @@
+<robot name="myfirst"> <!-- 로봇 하나 (이름: myfirst) -->
+    <link name="base_link> <!-- 부품 하나 (이름: base_link) 나중에 바퀴, 카메라가 전부 여기에 붙음--> 
+        <visual> <!-- 눈이 보이는 모양은 -->
+            <geometry> <!-- 형태가 -->
+                <cylinder length="0.6" radius="0.2"/> <!-- 원통, 길이: 0.6, 반지름: 0.2 | 숫자의 단위는 m임-->
+            </geometry>
+        </visual>
+    <link>
+</robot>

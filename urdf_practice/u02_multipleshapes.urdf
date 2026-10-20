@@ -1,0 +1,21 @@
+<robot name="multipleshapes">
+  <link name="base_link"> <!-- 원통, 부품 1: 몸통 -->
+    <visual>
+      <geometry>
+        <cylinder length="0.6" radius="0.2"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="right_leg"> <!-- 상자, 부품 2: 오른쪽 다리 -->
+    <visual>
+      <geometry>
+        <box size="0.6 0.1 0.2"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <joint name="base_to_right_leg" type="fixed"> <!-- 연결 -->
+    <parent link="base_link"/> <!-- 누구에게 붙나 (부모) -->
+    <child link="right_leg"/> <!-- 누가 붙나 (자식) -->
+  </joint>

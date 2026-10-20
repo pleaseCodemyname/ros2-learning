@@ -1,0 +1,44 @@
+<robot name="origins">
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <cylinder length="0.6" radius="0.2"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="right_leg">
+    <visual>
+      <geometry>
+        <box size="0.6 0.1 0.2"/> <!-- 상자 크기-->
+      </geometry>
+      <origin rpy="0 1.57075 0" xyz="0 0 -0.3"/>
+    </visual>
+  </link>
+
+
+  <joint name="base_to_right_leg" type="fixed">
+    <parent link="base_link"/>
+    <child link="right_leg"/>
+    <origin xyz="0 -0.22 0.25"/> <!-- 부모 기준 어디에 붙이나 앞, 오른쪽, 위-->
+    <!-- 
+    y가 마이너라, 왼쪽의 반대, 즉 오른 쪽임. 몸통 반지름이 0.2(20cm)니, 0.22면 몽통 바로 바깥에 붙는 것
+    -->
+  </joint>
+
+  <link name="left_leg">
+    <visual>
+      <geometry>
+        <box size="0.6 0.1 0.2"/>
+      </geometry>
+      <origin rpy="0 1.57075 0" xyz="0 0 -0.3"/>
+    </visual>
+  </link>
+
+  <joint name="base_to_left_leg" type="fixed">
+    <parent link="base_link"/>
+    <child link="left_leg"/>
+    <origin xyz="0 0.22 0.25"/> <!-- RGB(x, y=0.22(왼쪽), z=0.25)-->
+  </joint>
+
+</robot>

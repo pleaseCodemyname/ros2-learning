@@ -53,6 +53,11 @@
   - 보낼 때는 봉투에 넣고(Int32() → .data = → publish(봉투)), 받을 때는 봉투에서 꺼낸다(msg.data). 숫자만 publish하면 TypeError. 칸 이름은 `ros2 interface show <양식>`으로 확인 (Pose는 msg.x, Twist는 cmd.linear.x)
   - 토픽은 노드가 켜져 있어야 보인다 (중앙 서버 없음). ros2 topic 명령은 어느 폴더에서 쳐도 같다
   - publish는 배달만 맡기고 바로 다음 줄로 간다. 구독자가 없으면 버려지고, 늦게 켠 구독자는 지난 글을 못 받는다
+- URDF + RViz (urdf_practice/ 폴더, 튜토리얼 파일은 /opt/ros/jazzy/share/urdf_tutorial/urdf/)
+  - 실행: `ros2 launch urdf_tutorial display.launch.py model:=$HOME/ros2_ws/urdf_practice/파일.urdf` (내 파일은 절대 경로)
+  - u01 link 하나(원통/상자/구 바꿔 보기), u02 link 둘 + fixed joint, u03 origin 실험 후 왼쪽 다리(left_leg)를 직접 추가 (joint y만 +0.22로, visual은 오른쪽과 똑같이)
+  - 새 실습은 새 파일에 쓴다 (u01에 덮어쓸 뻔함. 아직 커밋 안 한 파일은 git으로 못 되돌린다). u01, u02에 아직 깨진 곳 있음(따옴표, 닫는 태그)
+  - 다음: fixed → 움직이는 joint로 바꿔 슬라이더로 다리 흔들기, /joint_states
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -124,6 +129,23 @@
   - 색 고르기는 데모용 도구. 나중엔 AI 모델이 물체 위치를 주고, 노드 틀(사진 → 위치 → cx → 판단 → 명령)은 그대로다
   - waitKey(0)은 창에서 키를 눌러야 끝난다. X로 닫으면 안 꺼짐. 끌 때는 Ctrl+C (Ctrl+Z는 일시정지일 뿐, 그땐 pkill -9 -f 파일이름)
 
+### URDF / RViz
+- URDF: 로봇 몸의 설계도(XML). DB 스키마처럼 "무엇이 어떻게 생겼나"만 적는다. RViz는 보여 주기만 하는 3D 화면(물리 없음, 물리는 Gazebo)
+- link = 부품 하나(visual → geometry 안에 모양 하나만: cylinder length/radius, box size="앞뒤 좌우 위아래", sphere radius). 숫자 단위는 미터
+- joint = 부품 연결. parent(누구에게 붙나), child(누가 붙나). tf와 같은 것. type="fixed"는 용접이라 슬라이더가 없다
+- child에 쓴 이름은 link의 name과 한 글자까지 같아야 한다 (토픽 이름처럼)
+- 방향: 🔴x 앞, 🟢y 왼쪽, 🔵z 위 (빨초파 = xyz). 내가 로봇 가운데 서 있으면 빨강 = 코, 초록 = 왼손, 파랑 = 머리 위. 마이너스는 반대쪽(y -0.22 = 오른쪽)
+- origin 두 종류
+  - joint 안의 origin xyz: 부모 가운데 기준으로 관절(엉덩이)을 어디에 둘까. 없으면 부모 한가운데(0,0,0)
+  - link visual 안의 origin: 관절 기준으로 모양을 어떻게 놓을까. rpy는 x, y, z축을 꼬치처럼 꽂고 돌리기(1.57 rad = 90°), xyz는 옮기기
+  - 튜토리얼 다리의 xyz 0 0 -0.3은 상자 길이 0.6의 절반만큼 내려서 윗끝이 관절에 매달리게 한 것. 나중에 관절이 움직이면 그 점을 중심으로 돈다
+  - 왼쪽/오른쪽 다리는 joint 위치만 다르고 visual은 똑같다
+- RViz 보는 법: 눈대중 말고 Add → Axes(Length 1) 화살표로 판정. Alpha를 낮춰 속을 본다. 노란 점은 카메라가 보는 중심
+  - 화면의 "위"와 로봇의 "위"는 다르다. Views의 Pitch가 1.57 근처면 하늘에서 내려다보는 중(원통이 동그라미, 파랑이 점으로 보임). Pitch 0.3이면 옆에서 본다
+- launch는 켤 때 URDF를 한 번만 읽는다(서버가 부팅 때 config 읽는 것과 같음). 순서: 고치기 → 저장 → 터미널에서 Ctrl+C → 다시 실행
+- joint_state_publisher_gui: 움직이는 joint의 슬라이더 창. Randomize는 아무 값, Center는 전부 0. /joint_states로 발행
+- XML 주석 `<!-- -->`: 겹칠 수 없고, 안에 `--` 못 쓰고, 태그 안에 못 넣는다. 한 줄씩 따로 쓴다. 혼자 닫는 태그는 `/>`
+
 ### Python
 - def는 만들기, 이름()은 실행. 괄호 없이 쓰면 함수 그 자체 (콜백을 넘길 때)
 - 부른 쪽 괄호 안의 값이 받는 쪽 이름에 담긴다. 이름이 아니라 값이 넘어간다
@@ -144,7 +166,9 @@
 - `missing required argument 'mat'`: imshow에 창 이름이 빠짐. imshow('창 이름', 사진). 창 이름이 같으면 덮어쓴다
 - `Unsupported depth ... CV_64F` / inRange `Sizes of input arguments do not match`: 사진이 uint8이 아니거나, 사진(흑백)과 lower/upper(숫자 3개)의 개수가 안 맞음. 에러 난 줄이 아니라 사진 만드는 줄이 원인일 수 있다
 - 창이 안 뜨고 로그도 없으면: 보내는 노드(cam2image)가 켜져 있는지부터. spin은 글이 안 오면 조용히 기다린다
-- 고쳤는데 그대로면 빌드했는지부터 확인
+- 고쳤는데 그대로면 빌드했는지부터 확인 (URDF는 launch를 다시 켰는지)
+- URDF `mismatched tag` / `not well-formed (invalid token)`: 태그를 안 닫았거나(`/>` 빠짐) 주석이 겹침. 줄/칸 번호를 본다
+- URDF `Joint [이름] is missing a parent and/or child link`: 그 joint의 parent/child 줄에 오타(`linke=` 등). XML은 모르는 속성을 조용히 무시한다. 처음 나온 Error 줄을 읽는다
 
 ## 다음 목표
 - OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 단계적으로 진행 예정
