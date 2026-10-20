@@ -57,7 +57,12 @@
   - 실행: `ros2 launch urdf_tutorial display.launch.py model:=$HOME/ros2_ws/urdf_practice/파일.urdf` (내 파일은 절대 경로)
   - u01 link 하나(원통/상자/구 바꿔 보기), u02 link 둘 + fixed joint, u03 origin 실험 후 왼쪽 다리(left_leg)를 직접 추가 (joint y만 +0.22로, visual은 오른쪽과 똑같이)
   - 새 실습은 새 파일에 쓴다 (u01에 덮어쓸 뻔함. 아직 커밋 안 한 파일은 git으로 못 되돌린다). u01, u02에 아직 깨진 곳 있음(따옴표, 닫는 태그)
-  - 다음: fixed → 움직이는 joint로 바꿔 슬라이더로 다리 흔들기, /joint_states
+  - u04 움직이는 관절: fixed → continuous(axis 세 개 다 실험) → revolute(limit 없으면 에러, ±0.785 = 45°). 슬라이더 2개로 두 다리 따로 움직이기. `ros2 topic echo /joint_states`, `topic info -v`로 슬라이더 창 = Publisher 확인
+  - u05_walker.py: 슬라이더 창을 닫고 내 노드가 /joint_states 발행 → 두 다리가 저절로 걷는다 (d02 talker 틀 + JointState)
+    - 1단계 고정 [0.5, -0.5] → 2단계 self.angle을 매번 0.05씩 → limit을 넘어 빙글빙글 → 3단계 self.direction으로 ±0.5에서 방향 바꾸기
+    - 실수: 토픽 이름 오타(/join_states), 타이머 콜백에 (self, msg), String() 그대로, position에 고정 숫자를 둬서 수첩을 안 읽음, 두 다리에 같은 부호, direction을 안 곱함, else로 방향을 바꿔서 끝에서 덜덜 떨림
+    - 이 노드 자리가 나중에 LLM 명령("걸어")을 숫자로 바꾸는 곳
+  - 다음: 바퀴 달린 로봇 URDF(continuous 바퀴 2개) → Gazebo에서 cmd_vel로 굴리기 (물리, 카메라를 몸에 달아 d10의 피드백 고리 해결)
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -144,6 +149,15 @@
   - 화면의 "위"와 로봇의 "위"는 다르다. Views의 Pitch가 1.57 근처면 하늘에서 내려다보는 중(원통이 동그라미, 파랑이 점으로 보임). Pitch 0.3이면 옆에서 본다
 - launch는 켤 때 URDF를 한 번만 읽는다(서버가 부팅 때 config 읽는 것과 같음). 순서: 고치기 → 저장 → 터미널에서 Ctrl+C → 다시 실행
 - joint_state_publisher_gui: 움직이는 joint의 슬라이더 창. Randomize는 아무 값, Center는 전부 0. /joint_states로 발행
+- joint type: fixed(용접, 카메라 거치대) / continuous(끝없이 돎, 바퀴, axis 필요) / revolute(범위 안에서만, 팔꿈치·로봇 팔, axis + limit 필요)
+  - axis xyz는 꼬치 방향. 1을 넣은 축을 꽂고 그 둘레로 돈다. 움직이는 방향은 꼬치와 수직 (1 0 0 옆으로 벌리기, 0 1 0 앞뒤로 걷기, 0 0 1 제자리 빙글). 안 적으면 1 0 0
+  - limit lower/upper는 rad. effort(힘), velocity(속도)도 필수지만 RViz는 안 쓰고 Gazebo에서 의미 있음
+  - limit은 적어 두는 것일 뿐 지켜 주지 않는다. 슬라이더는 limit을 읽어 막아 줬지만(프론트 폼 검증), 내 노드가 직접 보내면 그대로 그려진다(검증 없는 API). 지키는 건 내 코드나 모터 컨트롤러
+- /joint_states (sensor_msgs/msg/JointState): name 리스트와 position 리스트가 순서로 짝(ys/xs처럼). 단위 rad. header.stamp = self.get_clock().now().to_msg()로 "지금 각도" 도장
+  - 흐름: [슬라이더 창 또는 내 노드] → /joint_states → [robot_state_publisher: URDF + 각도로 계산] → /tf → [RViz]. 진짜 로봇은 슬라이더 자리에 모터
+  - 슬라이더 창과 내 노드를 같이 켜면 둘이 싸운다 → 슬라이더 창만 X로 닫는다
+- 각 link에도 화살표가 붙어서 관절과 같이 돈다. 앞뒤 판정은 옆에서 수평으로(Yaw 1.57, Pitch 0.05), TF → Show Names로 이름표. 비스듬히 보면 앞으로 뻗음과 아래로 매달림이 섞여 보인다
+  - 이 로봇에서 다리 각도 +는 발이 뒤로, -는 앞으로 (오른손 법칙: 엄지를 꼬치 방향으로, 감기는 쪽이 +)
 - XML 주석 `<!-- -->`: 겹칠 수 없고, 안에 `--` 못 쓰고, 태그 안에 못 넣는다. 한 줄씩 따로 쓴다. 혼자 닫는 태그는 `/>`
 
 ### Python
@@ -169,6 +183,8 @@
 - 고쳤는데 그대로면 빌드했는지부터 확인 (URDF는 launch를 다시 켰는지)
 - URDF `mismatched tag` / `not well-formed (invalid token)`: 태그를 안 닫았거나(`/>` 빠짐) 주석이 겹침. 줄/칸 번호를 본다
 - URDF `Joint [이름] is missing a parent and/or child link`: 그 joint의 parent/child 줄에 오타(`linke=` 등). XML은 모르는 속성을 조용히 무시한다. 처음 나온 Error 줄을 읽는다
+- URDF `is of type REVOLUTE but it does not specify limits`: revolute에 <limit> 줄이 없음 (NOT NULL 컬럼을 비워 둔 것)
+- `ros2 topic info` 등이 아무것도 안 뜨고 멈춤: Ctrl+Z로 멈춘 프로그램들 사이에 ros2 daemon(안내 데스크)까지 얼어 있었음. 끌 때는 항상 Ctrl+C. 이미 Ctrl+Z 했으면 fg → Ctrl+C
 
 ## 다음 목표
 - OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 단계적으로 진행 예정

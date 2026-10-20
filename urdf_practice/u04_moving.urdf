@@ -1,0 +1,42 @@
+<robot name="origins">
+	<link name="base_link">
+		<visual>
+			<geometry>
+				<cylinder length="0.6" radius="0.2"/>
+			</geometry>
+		</visual>
+	</link>
+
+	<link name="right_leg">
+		<visual>
+			<geometry>
+				<box size="0.6 0.1 0.2"/> 
+			</geometry>
+		</visual>
+	</link>
+
+	<joint name="base_to_right_leg" type="revolute">
+		<parent link="base_link"/>
+		<child link="right_leg"/>
+		<origin xyz="0 -0.22 0.25"/>
+		<axis xyz="0 1 0"/>
+		<limit lower="-0.785" upper="0.785" effort="1000" velocity="0.5"/>
+	</joint>
+
+	<link name="left_leg">
+		<visual>
+			<geometry>
+				<box size="0.6 0.1 0.2"/>
+			</geometry>
+		</visual>
+	</link>
+
+	<joint name="base_to_left_leg" type="revolute">
+		<parent link="base_link"/>
+		<child link="left_leg"/>
+		<origin xyz="0 0.22 0.25"/>
+		<axis xyz="0 1 0"/>
+		<limit lower="-0.785" upper="0.785" effort="1000" velocity="0.5"/>
+	</joint>
+
+</robot>
