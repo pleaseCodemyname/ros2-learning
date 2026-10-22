@@ -1,0 +1,42 @@
+<robot name="wheels">
+	<link name="base_link">
+		<visual>
+			<geometry>
+				<box size="0.4 0.3 0.1"/> <!--앞뒤 40cm, 좌우 30cm, 높이 10cm-->
+			</geometry>
+		</visual>
+	</link>
+
+	<link name="right_wheel">
+		<visual>
+			<geometry>
+				<cylinder length="0.05" radius="0.1"/> 
+			</geometry>
+			<origin rpy="1.57 0 0"/>
+		</visual>
+	</link>
+
+	<joint name="base_to_right_wheel" type="continuous">
+		<parent link="base_link"/>
+		<child link="right_wheel"/>
+		<origin xyz="0 -0.18 0"/>		
+		<axis xyz="0 1 0"/>
+	</joint>
+
+	<link name="left_wheel">
+		<visual>
+			<geometry>
+				<cylinder length="0.05" radius="0.1"/>
+			</geometry>
+			<origin rpy="1.57 0 0"/>
+		</visual>
+	</link>
+
+	<joint name="base_to_left_wheel" type="continuous">
+		<parent link="base_link"/>
+		<child link="left_wheel"/>
+		<origin xyz="0 0.18 0"/>
+		<axis xyz="0 1 0"/>
+	</joint>
+
+</robot>

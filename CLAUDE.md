@@ -52,6 +52,8 @@
   - 게시판 이름(주소, URL 경로 /image)과 양식 이름(스키마, sensor_msgs/msg/Image)은 다르다. create_subscription(양식, '게시판 이름', ...). `ros2 topic list -t`의 왼쪽이 게시판, [ ] 안이 양식. 이름은 대소문자까지 같아야 하고, 틀리면 에러 없이 아무것도 안 온다
   - 보낼 때는 봉투에 넣고(Int32() → .data = → publish(봉투)), 받을 때는 봉투에서 꺼낸다(msg.data). 숫자만 publish하면 TypeError. 칸 이름은 `ros2 interface show <양식>`으로 확인 (Pose는 msg.x, Twist는 cmd.linear.x)
   - 토픽은 노드가 켜져 있어야 보인다 (중앙 서버 없음). ros2 topic 명령은 어느 폴더에서 쳐도 같다
+  - /joint_states는 turtlesim에 없다(관절이 없으니까). URDF launch(슬라이더 창)를 켜야 보인다
+  - 확인 명령: `ros2 topic list`(목록), `list -t`(+양식), `ros2 topic info <토픽> -v`(누가 올리고 읽나, -v는 info 뒤에 토픽 하나 붙일 때), `ros2 topic echo <토픽>`(실제 글)
   - publish는 배달만 맡기고 바로 다음 줄로 간다. 구독자가 없으면 버려지고, 늦게 켠 구독자는 지난 글을 못 받는다
 - URDF + RViz (urdf_practice/ 폴더, 튜토리얼 파일은 /opt/ros/jazzy/share/urdf_tutorial/urdf/)
   - 실행: `ros2 launch urdf_tutorial display.launch.py model:=$HOME/ros2_ws/urdf_practice/파일.urdf` (내 파일은 절대 경로)
@@ -62,7 +64,16 @@
     - 1단계 고정 [0.5, -0.5] → 2단계 self.angle을 매번 0.05씩 → limit을 넘어 빙글빙글 → 3단계 self.direction으로 ±0.5에서 방향 바꾸기
     - 실수: 토픽 이름 오타(/join_states), 타이머 콜백에 (self, msg), String() 그대로, position에 고정 숫자를 둬서 수첩을 안 읽음, 두 다리에 같은 부호, direction을 안 곱함, else로 방향을 바꿔서 끝에서 덜덜 떨림
     - 이 노드 자리가 나중에 LLM 명령("걸어")을 숫자로 바꾸는 곳
-  - 다음: 바퀴 달린 로봇 URDF(continuous 바퀴 2개) → Gazebo에서 cmd_vel로 굴리기 (물리, 카메라를 몸에 달아 d10의 피드백 고리 해결)
+  - u06_wheels.urdf: 상자 몸통(0.4 0.3 0.1) + 원통 바퀴 2개(length 0.05 두께, radius 0.1), joint y ∓0.18, continuous + axis 0 1 0
+    - 원통의 length는 기본으로 🔵 위 방향 → 납작하면 바닥에 누운 동전. 바퀴 link의 visual에 rpy="1.57 0 0"(🔴 꼬치)으로 세운다. 🟢 꼬치(0 1.57 0)로 세우면 옆을 보는 게 바퀴 🦀
+    - 판정: 위에서(Pitch 1.57) 본 가는 막대가 🔴과 나란하면 자동차 바퀴. 바퀴는 동그래서 돌아도 티가 안 나니 바퀴의 화살표를 본다
+    - 걷는 다리와 구르는 바퀴는 같은 꼬치(0 1 0, 차축 방향)
+    - 실수: box에 radius / cylinder에 size 숫자(모양별 속성 혼동), 위치를 axis에 넣음, joint 여는 태그에 /> (안에 든 게 있으면 >로 열고 </joint>로 닫기, HTML의 <img />와 <div></div>), rpy를 joint 안에 넣고 xyz를 지움, axis 속성 오타 xya(조용히 무시되어 기본값 1 0 0), revolute + limit으로 바퀴를 만듦
+  - u07_wheel_spinner.py: u05를 힌트 거의 없이 다시 만들기. 바퀴는 if 없이 self.angle += 0.05만, 두 바퀴는 같은 부호
+    - 실수: 복사 흔적(다리 이름, if/elif 남음), __init__에 수첩 빠짐, postion/ange 오타, self.angle = 0(정수라 position에서 AssertionError, 0.0으로)
+    - 바퀴는 돌지만 몸통은 제자리: RViz에는 바닥/마찰이 없다(정비소 리프트에 올린 차). robot_state_publisher는 몸통 기준 위치만 계산하고, 세상 기준으로 몸이 어디 갔는지는 물리(Gazebo)가 필요
+  - URDF + RViz 구간 완료
+- 다음: 서비스·액션을 turtlesim으로 짧게(명령으로 불러 보기 → 코드로 부르기. 서비스 /spawn, /clear, 액션 /turtle1/rotate_absolute) → Gazebo에서 바퀴 로봇을 cmd_vel로 굴리기 (물리, 카메라를 몸에 달아 d10의 피드백 고리 해결)
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -71,6 +82,7 @@
 - 노드: 한 가지 일을 맡은 프로그램 하나
 - 토픽: 이름 붙은 게시판. 노드끼리 직접 연결되지 않고 게시판을 사이에 둔다
   - 요청/응답이 아니라 한쪽 방향이다 (메시지 큐와 같은 구조). 요청/응답은 서비스 (예: /spawn)
+- 통신 세 가지 (백엔드 비유): 토픽 = 메시지 큐/pub-sub(계속 흐르는 데이터: 영상, cmd_vel, joint_states) / 서비스 = REST API(요청 → 응답 한 번: /spawn) / 액션 = 오래 걸리는 job(goal → feedback 진행률 → result, 중간 취소 가능: "저기까지 가"). LLM 프로젝트의 "빨간 컵으로 가", Nav2, MoveIt은 액션으로 명령을 받는다
 - 메시지: 게시판에 올리는 글의 양식 (Twist: 속도 명령, Pose: 위치와 방향)
 - Publisher는 올리는 쪽(정보를 원래 가진 쪽), Subscriber는 읽는 쪽
   - 게시판의 성질이 아니라, 그 게시판에 대한 노드의 역할이다
@@ -183,6 +195,8 @@
 - 고쳤는데 그대로면 빌드했는지부터 확인 (URDF는 launch를 다시 켰는지)
 - URDF `mismatched tag` / `not well-formed (invalid token)`: 태그를 안 닫았거나(`/>` 빠짐) 주석이 겹침. 줄/칸 번호를 본다
 - URDF `Joint [이름] is missing a parent and/or child link`: 그 joint의 parent/child 줄에 오타(`linke=` 등). XML은 모르는 속성을 조용히 무시한다. 처음 나온 Error 줄을 읽는다
+- `AssertionError ... must be ... float` (JointState position): 정수(0)를 넣음. 0.0처럼 소수로
+- 메시지 칸 이름 오타(msg.postion): 에러가 날 수도, 조용히 안 될 수도 있다. `ros2 interface show`나 echo에서 본 칸 이름과 비교
 - URDF `is of type REVOLUTE but it does not specify limits`: revolute에 <limit> 줄이 없음 (NOT NULL 컬럼을 비워 둔 것)
 - `ros2 topic info` 등이 아무것도 안 뜨고 멈춤: Ctrl+Z로 멈춘 프로그램들 사이에 ros2 daemon(안내 데스크)까지 얼어 있었음. 끌 때는 항상 Ctrl+C. 이미 Ctrl+Z 했으면 fg → Ctrl+C
 
