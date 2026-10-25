@@ -73,7 +73,14 @@
     - 실수: 복사 흔적(다리 이름, if/elif 남음), __init__에 수첩 빠짐, postion/ange 오타, self.angle = 0(정수라 position에서 AssertionError, 0.0으로)
     - 바퀴는 돌지만 몸통은 제자리: RViz에는 바닥/마찰이 없다(정비소 리프트에 올린 차). robot_state_publisher는 몸통 기준 위치만 계산하고, 세상 기준으로 몸이 어디 갔는지는 물리(Gazebo)가 필요
   - URDF + RViz 구간 완료
-- 다음: 서비스·액션을 turtlesim으로 짧게(명령으로 불러 보기 → 코드로 부르기. 서비스 /spawn, /clear, 액션 /turtle1/rotate_absolute) → Gazebo에서 바퀴 로봇을 cmd_vel로 굴리기 (물리, 카메라를 몸에 달아 d10의 피드백 고리 해결)
+- 서비스·액션 (turtlesim, 명령으로 불러 보기 → 코드로 부르기)
+  - s01 명령으로 서비스: `ros2 service list -t`(turtlesim이 만든 /clear, /reset, /spawn, /kill, /turtle1/set_pen, teleport와, 모든 노드에 자동으로 붙는 파라미터 서비스), `ros2 service call /clear std_srvs/srv/Empty`(선만 지움, 거북이는 그대로)
+    - `ros2 interface show turtlesim/srv/Spawn`: `---` 위는 요청(x, y, theta, name), 아래는 응답(name)
+    - `ros2 service call /spawn turtlesim/srv/Spawn "{x: 2.0, y: 2.0, theta: 0.0, name: ''}"`: 이름을 비우면 turtle2를 지어서 응답으로 알려 줌(회원가입 API가 user_id를 돌려주는 것). 같은 이름이면 응답 name이 ''(실패, 409 같은 것)
+    - spawn하면 /이름/cmd_vel, /이름/pose 게시판이 생긴다(namespace, REST의 /users/{id}/...). 서비스로 한 번 만들고, 토픽으로 계속 조종
+  - s02_spawner.py: 코드로 /spawn 부르기. client 만들기와 wait는 __init__, 요청 → call_async → spin_until_future_complete → future.result()는 main에서 순서대로. 응답 name이 ''이면 error 로그, 아니면 info
+    - 실수: 설명 표의 기호(`...`, `=>`)를 코드에 넣음, 괄호 안에서 req.x = (아직 req가 없음 → x=2.0처럼 칸 이름만), main에서 self 사용(→ spawner.), 기다리기 전에 result(), __init__의 지역 변수 future를 main에서 씀, init 전에 노드 생성, destory 오타, 문자열을 0과 비교, if/else 내용 자리 바뀜
+  - 다음: s03 액션을 명령으로(/turtle1/rotate_absolute: goal → feedback → result, 취소) → s04 액션을 코드로 → Gazebo에서 바퀴 로봇을 cmd_vel로 굴리기 (물리, 카메라를 몸에 달아 d10의 피드백 고리 해결)
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -82,6 +89,12 @@
 - 노드: 한 가지 일을 맡은 프로그램 하나
 - 토픽: 이름 붙은 게시판. 노드끼리 직접 연결되지 않고 게시판을 사이에 둔다
   - 요청/응답이 아니라 한쪽 방향이다 (메시지 큐와 같은 구조). 요청/응답은 서비스 (예: /spawn)
+- 서비스: 요청 → 응답이 한 쌍(REST API). 양식은 `---` 위가 요청, 아래가 응답. import는 `from turtlesim.srv import Spawn`(양식 이름의 /를 .로, 토픽 양식은 msg, 서비스 양식은 srv)
+  - client(부르는 쪽)는 `self.create_client(Spawn, '/spawn')`, `wait_for_service()`(괄호 비우면 켜질 때까지 기다림)
+  - 요청 봉투: `Spawn.Request(x=2.0, ...)` 또는 `req = Spawn.Request()` 후 한 칸씩
+  - `call_async(req)`는 future(진동벨, JS Promise)를 바로 돌려준다. `rclpy.spin_until_future_complete(노드, future)`가 await, 그다음에 `future.result().name`. 기다리기 전에 result()를 꺼내면 None
+  - spin은 Ctrl+C까지 계속(서버), spin_until_future_complete는 답이 오면 끝(curl 같은 스크립트)
+  - 서비스에는 HTTP 같은 상태 코드가 없다. 응답 내용(빈 이름 등)을 if로 확인해서 성공/실패를 판단한다
 - 통신 세 가지 (백엔드 비유): 토픽 = 메시지 큐/pub-sub(계속 흐르는 데이터: 영상, cmd_vel, joint_states) / 서비스 = REST API(요청 → 응답 한 번: /spawn) / 액션 = 오래 걸리는 job(goal → feedback 진행률 → result, 중간 취소 가능: "저기까지 가"). LLM 프로젝트의 "빨간 컵으로 가", Nav2, MoveIt은 액션으로 명령을 받는다
 - 메시지: 게시판에 올리는 글의 양식 (Twist: 속도 명령, Pose: 위치와 방향)
 - Publisher는 올리는 쪽(정보를 원래 가진 쪽), Subscriber는 읽는 쪽
@@ -195,6 +208,9 @@
 - 고쳤는데 그대로면 빌드했는지부터 확인 (URDF는 launch를 다시 켰는지)
 - URDF `mismatched tag` / `not well-formed (invalid token)`: 태그를 안 닫았거나(`/>` 빠짐) 주석이 겹침. 줄/칸 번호를 본다
 - URDF `Joint [이름] is missing a parent and/or child link`: 그 joint의 parent/child 줄에 오타(`linke=` 등). XML은 모르는 속성을 조용히 무시한다. 처음 나온 Error 줄을 읽는다
+- `expression cannot contain assignment`: 함수 괄호 안에 `req.x = 2.0`처럼 씀. 괄호 안에서는 `x=2.0`(칸 이름만)
+- `name 'self' is not defined`: 클래스 밖(main)에서 self를 씀. main에서는 노드를 담은 변수(spawner.)로
+- 문자열과 숫자 비교(`name == 0`)는 에러 없이 항상 False. 빈 문자열은 `''`
 - `AssertionError ... must be ... float` (JointState position): 정수(0)를 넣음. 0.0처럼 소수로
 - 메시지 칸 이름 오타(msg.postion): 에러가 날 수도, 조용히 안 될 수도 있다. `ros2 interface show`나 echo에서 본 칸 이름과 비교
 - URDF `is of type REVOLUTE but it does not specify limits`: revolute에 <limit> 줄이 없음 (NOT NULL 컬럼을 비워 둔 것)
