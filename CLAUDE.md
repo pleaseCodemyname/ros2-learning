@@ -80,7 +80,16 @@
     - spawn하면 /이름/cmd_vel, /이름/pose 게시판이 생긴다(namespace, REST의 /users/{id}/...). 서비스로 한 번 만들고, 토픽으로 계속 조종
   - s02_spawner.py: 코드로 /spawn 부르기. client 만들기와 wait는 __init__, 요청 → call_async → spin_until_future_complete → future.result()는 main에서 순서대로. 응답 name이 ''이면 error 로그, 아니면 info
     - 실수: 설명 표의 기호(`...`, `=>`)를 코드에 넣음, 괄호 안에서 req.x = (아직 req가 없음 → x=2.0처럼 칸 이름만), main에서 self 사용(→ spawner.), 기다리기 전에 result(), __init__의 지역 변수 future를 main에서 씀, init 전에 노드 생성, destory 오타, 문자열을 0과 비교, if/else 내용 자리 바뀜
-  - 다음: s03 액션을 명령으로(/turtle1/rotate_absolute: goal → feedback → result, 취소) → s04 액션을 코드로 → Gazebo에서 바퀴 로봇을 cmd_vel로 굴리기 (물리, 카메라를 몸에 달아 d10의 피드백 고리 해결)
+  - s03 명령으로 액션: `ros2 action list -t` → `/turtle1/rotate_absolute [turtlesim/action/RotateAbsolute]`, `ros2 interface show`로 `---` 2개 = 목표(theta) / 결과(delta) / 진행(remaining) 순서(ROS2 규칙, 위치로 정해짐)
+    - `ros2 action send_goal /turtle1/rotate_absolute turtlesim/action/RotateAbsolute "{theta: 1.57}" -f`: Feedback의 remaining이 계속 줄고, Result delta, `status: SUCCEEDED`
+    - 도중에 Ctrl+C → `Canceling goal...` → 거북이가 그 자리에서 멈춤. 뒤의 `Executor is already spinning`은 명령 도구 버그. 서버 로그에는 `Failed to send cancel response`(client가 먼저 꺼져 답장 받을 사람 없음) + `Rotation goal canceled`. client와 server 로그를 같이 보는 게 분산 시스템 디버깅
+  - s04_rotator.py: 코드로 액션 부르기. 진동벨이 두 번(배달 앱: 주문 접수 → 배달 완료)
+    - __init__: `self.cli = ActionClient(self, RotateAbsolute, '/turtle1/rotate_absolute')`(self가 맨 앞), `wait_for_server()`
+    - main: `RotateAbsolute.Goal(theta=1.57)` → `send_goal_async(goal, feedback_callback=rotator.feedback_callback)` → 벨 ① 기다리기 → `goal_handle = future.result()` → `goal_handle.get_result_async()` → 벨 ② 기다리기 → `output = result_future.result()` → `output.result.delta`, `output.status`(4 = SUCCEEDED)
+    - feedback 콜백: `def feedback_callback(self, feedback_msg)` 안에서 `feedback_msg.feedback.remaining`. 1초에 약 60번, 반 바퀴(3.12 → 0)에 약 3초. 불러 주는 건 spin_until_future_complete(벨을 기다리는 동안에도 spin이라 콜백을 부른다)
+    - 실수: ActionClient를 self.create_client에 담음(Node 함수 이름 덮어쓰기, 아래 줄은 self.cli), 괄호 안 순서(양식 자리에 액션 이름, 이름 자리에 'shy'), main을 클래스 안에 들여씀, Goal에 Spawn 칸(x, y, name), call_async(서비스용), `result() = goal_handle()`(=의 왼쪽은 이름, 오른쪽은 값), 벨 ② 안 기다림, 벨(future)에서 바로 .delta, output.delta(중간 result. 건너뜀), info에 리스트/숫자, feedback_msg.result(→ .feedback), feedback_callback= 빈칸, 콜백 뒤에 () 붙임
+  - 서비스·액션 사다리 완료
+- 다음: Gazebo에서 바퀴 로봇을 cmd_vel로 굴리기 (물리, 카메라를 몸에 달아 d10의 피드백 고리 해결)
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -95,6 +104,12 @@
   - `call_async(req)`는 future(진동벨, JS Promise)를 바로 돌려준다. `rclpy.spin_until_future_complete(노드, future)`가 await, 그다음에 `future.result().name`. 기다리기 전에 result()를 꺼내면 None
   - spin은 Ctrl+C까지 계속(서버), spin_until_future_complete는 답이 오면 끝(curl 같은 스크립트)
   - 서비스에는 HTTP 같은 상태 코드가 없다. 응답 내용(빈 이름 등)을 if로 확인해서 성공/실패를 판단한다
+- 액션: 오래 걸리는 일. 양식은 목표 `---` 결과 `---` 진행(파일 순서, 실제로 일어나는 순서는 목표 → 진행… → 결과). import는 `from turtlesim.action import RotateAbsolute`, 도구는 `from rclpy.action import ActionClient`
+  - 양식 이름 가운데 칸: msg(토픽) / srv(서비스) / action(액션). 목록도 따로: `ros2 topic|service|action list -t`
+  - 생성자에서는 양식을 알려 주기만(RotateAbsolute, 괄호 없음 = 스키마), 봉투는 main에서 만든다(RotateAbsolute.Goal(...), 괄호 = row 하나)
+  - 결과 상자는 JSON처럼 중첩: `{status: 4, result: {delta: ...}}` → `output.status`, `output.result.delta`. feedback도 `feedback_msg.feedback.remaining`
+  - 서비스와 달리 status(SUCCEEDED=4, CANCELED, ABORTED)가 있고, 중간 취소가 된다
+  - client = 부탁하는 쪽(프론트의 fetch), server = 일을 해 주는 쪽(turtlesim). 서비스든 액션이든 같다
 - 통신 세 가지 (백엔드 비유): 토픽 = 메시지 큐/pub-sub(계속 흐르는 데이터: 영상, cmd_vel, joint_states) / 서비스 = REST API(요청 → 응답 한 번: /spawn) / 액션 = 오래 걸리는 job(goal → feedback 진행률 → result, 중간 취소 가능: "저기까지 가"). LLM 프로젝트의 "빨간 컵으로 가", Nav2, MoveIt은 액션으로 명령을 받는다
 - 메시지: 게시판에 올리는 글의 양식 (Twist: 속도 명령, Pose: 위치와 방향)
 - Publisher는 올리는 쪽(정보를 원래 가진 쪽), Subscriber는 읽는 쪽
@@ -208,6 +223,10 @@
 - 고쳤는데 그대로면 빌드했는지부터 확인 (URDF는 launch를 다시 켰는지)
 - URDF `mismatched tag` / `not well-formed (invalid token)`: 태그를 안 닫았거나(`/>` 빠짐) 주석이 겹침. 줄/칸 번호를 본다
 - URDF `Joint [이름] is missing a parent and/or child link`: 그 joint의 parent/child 줄에 오타(`linke=` 등). XML은 모르는 속성을 조용히 무시한다. 처음 나온 Error 줄을 읽는다
+- `cannot assign to function call`: `=` 왼쪽에 괄호 달린 것을 씀. 왼쪽은 새 이름, 오른쪽이 값(`goal_handle = future.result()`)
+- `expected argument value expression`: `이름=` 뒤가 비어 있음
+- `'Future' object has no attribute 'delta'`: 벨(future)에서 바로 꺼냄. `.result()`로 상자를 먼저 받고 거기서 꺼낸다
+- `missing 1 required positional argument`(콜백): 콜백을 넘길 때 괄호를 붙여 지금 실행해 버림. 괄호 없이 넘긴다
 - `expression cannot contain assignment`: 함수 괄호 안에 `req.x = 2.0`처럼 씀. 괄호 안에서는 `x=2.0`(칸 이름만)
 - `name 'self' is not defined`: 클래스 밖(main)에서 self를 씀. main에서는 노드를 담은 변수(spawner.)로
 - 문자열과 숫자 비교(`name == 0`)는 에러 없이 항상 False. 빈 문자열은 `''`
