@@ -89,7 +89,17 @@
     - feedback 콜백: `def feedback_callback(self, feedback_msg)` 안에서 `feedback_msg.feedback.remaining`. 1초에 약 60번, 반 바퀴(3.12 → 0)에 약 3초. 불러 주는 건 spin_until_future_complete(벨을 기다리는 동안에도 spin이라 콜백을 부른다)
     - 실수: ActionClient를 self.create_client에 담음(Node 함수 이름 덮어쓰기, 아래 줄은 self.cli), 괄호 안 순서(양식 자리에 액션 이름, 이름 자리에 'shy'), main을 클래스 안에 들여씀, Goal에 Spawn 칸(x, y, name), call_async(서비스용), `result() = goal_handle()`(=의 왼쪽은 이름, 오른쪽은 값), 벨 ② 안 기다림, 벨(future)에서 바로 .delta, output.delta(중간 result. 건너뜀), info에 리스트/숫자, feedback_msg.result(→ .feedback), feedback_callback= 빈칸, 콜백 뒤에 () 붙임
   - 서비스·액션 사다리 완료
-- 다음: Gazebo에서 바퀴 로봇을 cmd_vel로 굴리기 (물리, 카메라를 몸에 달아 d10의 피드백 고리 해결)
+- Gazebo 사다리 (gazebo_practice/ 폴더, g01 설치·물리 → g02 바퀴 로봇 넣기 → g03 cmd_vel로 굴리기 → g04 몸에 카메라, d10 피드백 고리)
+  - g01: `sudo apt install ros-jazzy-ros-gz`(gz sim 8, Harmonic). 설치 직후 `gz: command not found`면 새 터미널(또는 source). `gz sim -r shapes.sdf`로 상자/공이 떨어지는 것 확인(-r 없으면 일시정지 상태로 켜져서 안 떨어짐)
+  - g02: u06 바퀴 로봇을 Gazebo에 넣기. T1 `gz sim -r empty.sdf`, T2 `ros2 run ros_gz_sim create -file $HOME/ros2_ws/gazebo_practice/파일.urdf -name wheels -z 0.5`
+    - g02-1 g02_wheels.urdf를 그대로 넣음 → 아무것도 안 나타남(inertial 없는 link는 버려져서 빈 모델)
+    - g02-2 inertial 추가 → 바닥을 뚫고 떨어짐(collision 없으면 안 부딪힘, `invalid poses ... Resetting`)
+    - g02-3 collision 추가 → 앞으로 기울어 몸통이 바닥에 닿음(바퀴 2개가 한 줄 = 다리 두 개짜리 의자)
+    - g02-4 g02_caster.urdf: 뒤쪽에 캐스터(공 반지름 0.05, fixed joint, xyz -0.15 0 -0.05) → 수평으로 섬. z는 계산: 바퀴 바닥 -0.1 + 공 반지름 0.05 = -0.05
+    - 확인: 우클릭 → View → Frames(링크 화살표), Transparent(몸통 속 화살표 보기), Collisions. 선택 후 Component Inspector의 Pose z = 0.10(몸통 가운데 = 바퀴 반지름, 몸통 아래 5cm 틈)
+    - 기본 카메라는 로봇 뒤(-x)에서 보고 있어서 뒤쪽 캐스터가 "앞"처럼 보였다. 앞은 🔴 화살표로 판정. 눈으로 "틈이 없다"였지만 숫자로는 있었다 → 눈대중보다 숫자
+    - 실수: intertial/intertia 오타(조용히 무시되어 inertial 없는 link), joint type 오타 conituous + 캐스터에 continuous(→ fixed, axis 필요 없음), z 부호(+는 위), 공에 바퀴의 rpy 복사(공은 돌려도 같음)
+  - 다음: g03 diff-drive 플러그인 + ros_gz_bridge로 /cmd_vel 잇기 → teleop으로 굴리기
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -200,6 +210,14 @@
   - 이 로봇에서 다리 각도 +는 발이 뒤로, -는 앞으로 (오른손 법칙: 엄지를 꼬치 방향으로, 감기는 쪽이 +)
 - XML 주석 `<!-- -->`: 겹칠 수 없고, 안에 `--` 못 쓰고, 태그 안에 못 넣는다. 한 줄씩 따로 쓴다. 혼자 닫는 태그는 `/>`
 
+### Gazebo
+- RViz는 보여 주기만(정비소 리프트), Gazebo는 물리(중력, 바닥, 마찰)가 있는 시뮬레이터. world 파일은 SDF, 내 로봇 URDF는 넣을 때 SDF로 바뀐다
+- Gazebo용 link는 칸 세 개: visual(어떻게 생겼나) / collision(어디에 부딪히나, 히트박스, 보통 visual과 같은 모양) / inertial(얼마나 무겁나: mass + inertia 6개 ixx ixy ixz iyy iyz izz, 하나라도 빠지면 파싱 에러). inertia 숫자는 모양별 공식으로 계산
+- 접점이 한 줄(바퀴 2개)이면 앞뒤로 넘어진다. 캐스터(아무 방향으로 구르는 보조 바퀴, 힘은 안 주고 받치기만)로 접점 3개 = 삼각대. 로봇 청소기, TurtleBot도 같다
+- 캐스터 joint는 fixed. 구르는 건 공 표면과 바닥이 알아서 한다
+- `check_urdf 파일.urdf`: Gazebo 켜기 전에 설계도 문법 검사. 마지막에 child 목록이 다 나오면 통과
+- 같은 이름(-name wheels)으로 다시 spawn하면 실패(s01의 /spawn과 같음) → gz sim을 껐다 켠다
+
 ### Python
 - def는 만들기, 이름()은 실행. 괄호 없이 쓰면 함수 그 자체 (콜백을 넘길 때)
 - 부른 쪽 괄호 안의 값이 받는 쪽 이름에 담긴다. 이름이 아니라 값이 넘어간다
@@ -233,6 +251,9 @@
 - `AssertionError ... must be ... float` (JointState position): 정수(0)를 넣음. 0.0처럼 소수로
 - 메시지 칸 이름 오타(msg.postion): 에러가 날 수도, 조용히 안 될 수도 있다. `ros2 interface show`나 echo에서 본 칸 이름과 비교
 - URDF `is of type REVOLUTE but it does not specify limits`: revolute에 <limit> 줄이 없음 (NOT NULL 컬럼을 비워 둔 것)
+- Gazebo `A model must have at least one link` / spawn했는데 아무것도 안 보임: link에 inertial이 없어서 버려짐(태그 이름 오타도 같은 결과)
+- Gazebo `Some links in model ... have invalid poses ... Resetting`: collision이 없어 바닥을 뚫고 끝없이 떨어짐
+- `Could not parse inertial element for Link [이름]`: inertial 안의 inertia 줄이 없거나(오타 포함) 6개 값 중 빠진 게 있음
 - `ros2 topic info` 등이 아무것도 안 뜨고 멈춤: Ctrl+Z로 멈춘 프로그램들 사이에 ros2 daemon(안내 데스크)까지 얼어 있었음. 끌 때는 항상 Ctrl+C. 이미 Ctrl+Z 했으면 fg → Ctrl+C
 
 ## 다음 목표
