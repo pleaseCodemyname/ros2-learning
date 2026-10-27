@@ -99,7 +99,23 @@
     - 확인: 우클릭 → View → Frames(링크 화살표), Transparent(몸통 속 화살표 보기), Collisions. 선택 후 Component Inspector의 Pose z = 0.10(몸통 가운데 = 바퀴 반지름, 몸통 아래 5cm 틈)
     - 기본 카메라는 로봇 뒤(-x)에서 보고 있어서 뒤쪽 캐스터가 "앞"처럼 보였다. 앞은 🔴 화살표로 판정. 눈으로 "틈이 없다"였지만 숫자로는 있었다 → 눈대중보다 숫자
     - 실수: intertial/intertia 오타(조용히 무시되어 inertial 없는 link), joint type 오타 conituous + 캐스터에 continuous(→ fixed, axis 필요 없음), z 부호(+는 위), 공에 바퀴의 rpy 복사(공은 돌려도 같음)
-  - 다음: g03 diff-drive 플러그인 + ros_gz_bridge로 /cmd_vel 잇기 → teleop으로 굴리기
+  - g03-1 g03_drive.urdf: g02_caster에 diff-drive 플러그인(`<gazebo><plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">`, left_joint/right_joint = joint 이름, wheel_separation 0.36, wheel_radius 0.1, topic cmd_vel)
+    - `gz topic -l`(Gazebo의 topic list)에 /cmd_vel, /model/wheels/odometry가 보이면 플러그인이 켜진 것
+    - `gz topic -t /cmd_vel -m gz.msgs.Twist -p "linear: {x: 0.5}"`로 ROS 없이 굴림. 첫 번째는 사라짐(연결되기 전에 던지고 끝남) → 한 번 더 보내니 감
+    - 마지막 명령을 계속 지켜서 멈추지 않는다(turtlesim은 1초 뒤 멈춤). 멈추려면 0을 보낸다. 진짜 로봇은 타임아웃(watchdog)으로 멈춤
+    - `angular: {z: 0.5}` → 반시계 제자리 회전. 안 적은 칸은 0(PUT)
+    - 실수: cp를 안 해서 파일에 플러그인만 있음(몸이 없음), `</gazebo>` 안 닫음
+  - 다음: g03-2 `ros2 run ros_gz_bridge parameter_bridge /cmd_vel@ROS인터페이스]Gazebo인터페이스`로 ROS /cmd_vel 잇기 → g03-3 teleop. bridge 없이 `ros2 topic pub /cmd_vel ...`은 `Waiting for at least 1 matching subscription`(ROS 쪽에는 구독자가 안 보임)
+  - g03-2 직전에 "기초부터 다시 반복 훈련"으로 잠시 멈춤
+- 기초 반복 훈련 (과제만 받고 빈 화면에서 기억으로, 모르면 물어본 부분만 답 받기, 힌트가 있었으면 나중에 다시)
+  - A 명령어 단계 (turtlesim, 터미널만) 완료
+    - A1 `ros2 node list`(노드 이름 /turtlesim ≠ 실행 파일 이름 turtlesim_node), `ros2 topic list -t`, `ros2 topic echo /turtle1/pose --once`
+    - A2 `ros2 topic pub --once /turtle1/cmd_vel geometry_msgs/msg/Twist "{linear: {x: 2.0}}"`, `ros2 interface show geometry_msgs/msg/Twist`
+    - A3 `ros2 service list -t`, `ros2 service call /clear std_srvs/srv/Empty`(빈 요청, 빈 응답 = 204), `ros2 service call /spawn turtlesim/srv/Spawn "{x: 3.0, y: 3.0, theta: 0.0, name: 'shy'}"`(같은 이름이면 응답 name='')
+    - A4 `ros2 action list -t`, `ros2 action send_goal /turtle1/rotate_absolute turtlesim/action/RotateAbsolute "{theta: 1.57}" -f`
+    - 종합: 이름 비워 spawn(turtle2) → 왼쪽(theta ±3.14)으로 회전 → 앞으로 2.0 → x가 8.0 → 5.98로 줄어듦(명령은 거북이 기준, Pose는 창 기준) → clear. list -t → interface show → -h 순서로 스스로 찾음
+    - 막힌 곳: pub 동작 이름(run, echo로 시도), 바깥 따옴표, Twist 중첩, 콜론 뒤 띄어쓰기, 목표에 결과/진행 칸(delta, remaining)까지 넣음
+  - 다음: B 코드 단계 (basics/ 폴더, b01 빈 노드 → b02 타이머+Pub → b03 Sub → b04 Sub+Pub → b05 turtlesim → b06 서비스 client → b07 액션 client)
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -145,6 +161,17 @@
   - 새 노드는 setup.py의 console_scripts에 `'이름 = 패키지.파일:main'` 등록
   - source는 패키지를 새로 만들었을 때만 다시 필요
 - Twist 단위: linear.x는 m/s(turtlesim에서는 창 칸 기준), angular.z는 rad/s(1.0이면 1초에 약 57도). z축은 늘 위를 향하고, 위에서 볼 때 +는 반시계(왼쪽), -는 시계(오른쪽)
+- 명령어 패턴: `ros2 [무엇: node/topic/service/action/interface] [동작]`. 막히면 어느 자리든 `-h`(`ros2 action -h` → 동작 목록, `ros2 action send_goal -h` → 옵션). 외울 건 패턴과 -h뿐
+  - 동작: 목록 `list`(-t는 인터페이스도), 토픽 읽기 `echo` / 올리기 `pub`, 서비스 `call`, 액션 `send_goal`(-f는 feedback), 인터페이스 내용 `interface show`. `ros2 run`은 프로그램 실행(패키지 + 실행 파일)
+  - 한 번만: `--once`(echo, pub 둘 다). pub에 없으면 1초에 1번씩 계속 보낸다
+  - `list -t` 결과는 왼쪽 = 토픽/서비스/액션 이름(URL 경로), `[ ]` = 인터페이스(body 스키마). 여러 토픽이 같은 인터페이스를 쓸 수 있다
+  - echo는 인터페이스를 안 적는다(올리는 쪽이 이미 알려 줌, 받는 택배). pub/call/send_goal은 내가 상자를 만드니까 적는다. 코드에서는 구독할 때도 적는다
+  - 내용 `"{칸: 값}"`은 YAML: 바깥은 `" "`로 묶어 한 덩어리(셸은 띄어쓰기마다 자른다), 안쪽 글자는 `' '`, 콜론 뒤 한 칸, 상자 안 상자는 `{linear: {x: 2.0}}`, float 칸은 3.0처럼
+  - 요청/목표에는 `---` 위쪽 칸만 넣는다. 아래는 돌려받는 칸
+  - 명령의 `making request: Spawn_Request(x=3.0, ...)` 줄은 파이썬 코드 모양 그대로 → 코드로 옮길 때 참고(curl 먼저 → 코드)
+- 인터페이스: 지금까지 "양식"이라고 부른 것의 공식 이름. TypeScript interface 같은 스키마. msg(토픽) / srv(서비스) / action(액션) 세 종류를 묶어서 부름
+- Pose: x(창 왼쪽 → 오른쪽), y(창 아래 → 위, OpenCV와 반대), theta(바라보는 방향 rad: 0 → 오른쪽, 1.57 ↑, ±3.14 ←, -1.57 ↓), linear_velocity/angular_velocity는 지금 속도(상태 보고서, Twist는 주문서)
+  - Pose의 x(창 기준 위치)와 Twist의 linear.x(거북이 코 방향 속도)는 다른 x. Pose는 내가 바꾸는 값이 아니라 cmd_vel 주문의 결과
 - launch: ros2 run 여러 개를 한 번에 실행
 - tf: frame은 "누구 기준으로 재는가". /tf 토픽에 "world 기준으로 나는 여기"를 올리면(broadcaster) 다른 조합은 계산해 준다(listener, lookup_transform)
   - pose의 x, y는 창 기준(가로, 세로). 거북이 기준 tf의 x, y는 앞쪽, 왼쪽
@@ -217,6 +244,9 @@
 - 캐스터 joint는 fixed. 구르는 건 공 표면과 바닥이 알아서 한다
 - `check_urdf 파일.urdf`: Gazebo 켜기 전에 설계도 문법 검사. 마지막에 child 목록이 다 나오면 통과
 - 같은 이름(-name wheels)으로 다시 spawn하면 실패(s01의 /spawn과 같음) → gz sim을 껐다 켠다
+- 위치는 눈대중 말고 숫자: 로봇 선택 → Component Inspector의 Pose. 카메라는 처음에 로봇 뒤에서 본다
+- diff-drive 플러그인 = 모터 드라이버. Twist는 몸통에 대한 주문서이고, 플러그인이 왼쪽/오른쪽 바퀴 속도로 번역한다(서비스 레이어). 직진은 두 바퀴 같은 방향, 제자리 회전은 반대, 원은 한쪽이 더 빠르게(차동 구동). wheel_separation/radius가 틀리면 주문과 실제 속도가 달라진다
+- Gazebo에도 자기 게시판(gz topic)이 있다. ROS의 /cmd_vel과 이름이 같아도 서로 안 보인다(다른 메시지 시스템) → ros_gz_bridge로 잇는다. 인터페이스 이름도 다르다(geometry_msgs/msg/Twist ↔ gz.msgs.Twist)
 
 ### Python
 - def는 만들기, 이름()은 실행. 괄호 없이 쓰면 함수 그 자체 (콜백을 넘길 때)
@@ -254,6 +284,12 @@
 - Gazebo `A model must have at least one link` / spawn했는데 아무것도 안 보임: link에 inertial이 없어서 버려짐(태그 이름 오타도 같은 결과)
 - Gazebo `Some links in model ... have invalid poses ... Resetting`: collision이 없어 바닥을 뚫고 끝없이 떨어짐
 - `Could not parse inertial element for Link [이름]`: inertial 안의 inertia 줄이 없거나(오타 포함) 6개 값 중 빠진 게 있음
+- `XML_ERROR_MISMATCHED_ELEMENT ... Line number=2: XMLElement name=gazebo`: 그 줄에서 연 태그(`<gazebo>`)를 안 닫음
+- `Value 'shy' is expected to be a dictionary but is a str` (또는 `but is a float`): 내용에 칸 이름 없이 값만 넣음, 또는 상자(linear)에 숫자를 바로 넣음 → `{칸: 값}`, `{linear: {x: 2.0}}`
+- `unrecognized arguments: 1.0, y: ...`: 내용을 `" "`로 안 묶어서 셸이 띄어쓰기마다 자름. 에러가 모르는 조각을 나열해 준다. echo처럼 내용을 받지 않는 동작에 내용을 넣어도 같은 에러
+- `object has no attribute 'theta:1.57'`: 콜론 뒤 띄어쓰기가 없어서 전체를 칸 이름으로 읽음
+- `Package '/turtle2/cmd_vel' not found`: `ros2 run`(프로그램 실행)에 토픽 이름을 넣음. 토픽에 올리기는 `ros2 topic pub`
+- `invalid choice ... choose from 'info', 'list', 'send_goal', 'type'`: 동작 자리가 빠지거나 틀림. 목록에서 고른다
 - `ros2 topic info` 등이 아무것도 안 뜨고 멈춤: Ctrl+Z로 멈춘 프로그램들 사이에 ros2 daemon(안내 데스크)까지 얼어 있었음. 끌 때는 항상 Ctrl+C. 이미 Ctrl+Z 했으면 fg → Ctrl+C
 
 ## 다음 목표
