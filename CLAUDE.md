@@ -105,8 +105,18 @@
     - 마지막 명령을 계속 지켜서 멈추지 않는다(turtlesim은 1초 뒤 멈춤). 멈추려면 0을 보낸다. 진짜 로봇은 타임아웃(watchdog)으로 멈춤
     - `angular: {z: 0.5}` → 반시계 제자리 회전. 안 적은 칸은 0(PUT)
     - 실수: cp를 안 해서 파일에 플러그인만 있음(몸이 없음), `</gazebo>` 안 닫음
-  - 다음: g03-2 `ros2 run ros_gz_bridge parameter_bridge /cmd_vel@ROS인터페이스]Gazebo인터페이스`로 ROS /cmd_vel 잇기 → g03-3 teleop. bridge 없이 `ros2 topic pub /cmd_vel ...`은 `Waiting for at least 1 matching subscription`(ROS 쪽에는 구독자가 안 보임)
-  - g03-2 직전에 "기초부터 다시 반복 훈련"으로 잠시 멈춤
+  - g03-2 직전에 "기초부터 다시 반복 훈련"으로 잠시 멈췄다가 B 단계 후 복귀
+  - g03-2 bridge: bridge 없이 `ros2 topic pub /cmd_vel ...`은 `Waiting for at least 1 matching subscription`(ROS 쪽에는 Gazebo 구독자가 안 보임)
+    - `ros2 run ros_gz_bridge parameter_bridge /cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist` → `Creating ROS->GZ Bridge` 한 줄이면 성공. `]`는 ROS → Gazebo 한 방향
+    - `ros2 topic info /cmd_vel -v`의 Subscriber는 `ros_gz_bridge`. 흐름: ROS 노드 → /cmd_vel(ROS) → ros_gz_bridge → /cmd_vel(Gazebo) → diff-drive 플러그인 → 바퀴
+    - 확인: `gz topic -e -t /model/wheels/odometry -n 1`의 position과 twist(보낸 0.3 그대로)
+    - 실수: ROS 쪽 인터페이스를 `Twist`만 씀 → `No template specialization for the pair`
+  - g03-3 teleop: `ros2 run teleop_twist_keyboard teleop_twist_keyboard` (i 앞, , 뒤, j/l 회전, k 멈춤)
+    - teleop은 자기 터미널이 선택돼 있어야 키를 받는다. 다른 창에 포커스가 있으면 에러 없이 아무것도 안 됨
+    - 키를 누를 때만 한 번 발행하고, 플러그인은 마지막 명령을 계속 따라서 키를 떼도 계속 간다 → k로 멈춤
+    - 메시지는 echo에 찍히는데 안 움직이면: Gazebo가 일시정지(`gz topic -e -t /stats -n 1`의 `paused: true`). 왼쪽 아래 ▶로 재생
+    - 디버깅 순서: 메시지가 어디까지 가나(topic info -v, echo, gz topic -e) → 로봇 상태(odometry, pose/info) → 시뮬레이션 상태(/stats)
+  - g03 완료. 다음: g04 카메라 link + Gazebo 카메라 센서 → bridge로 이미지 토픽 → d10처럼 cx로 /cmd_vel 발행(카메라가 몸에 붙어서 피드백 고리)
 - 기초 반복 훈련 (과제만 받고 빈 화면에서 기억으로, 모르면 물어본 부분만 답 받기, 힌트가 있었으면 나중에 다시)
   - A 명령어 단계 (turtlesim, 터미널만) 완료
     - A1 `ros2 node list`(노드 이름 /turtlesim ≠ 실행 파일 이름 turtlesim_node), `ros2 topic list -t`, `ros2 topic echo /turtle1/pose --once`
@@ -286,6 +296,10 @@
 - 위치는 눈대중 말고 숫자: 로봇 선택 → Component Inspector의 Pose. 카메라는 처음에 로봇 뒤에서 본다
 - diff-drive 플러그인 = 모터 드라이버. Twist는 몸통에 대한 주문서이고, 플러그인이 왼쪽/오른쪽 바퀴 속도로 번역한다(서비스 레이어). 직진은 두 바퀴 같은 방향, 제자리 회전은 반대, 원은 한쪽이 더 빠르게(차동 구동). wheel_separation/radius가 틀리면 주문과 실제 속도가 달라진다
 - Gazebo에도 자기 게시판(gz topic)이 있다. ROS의 /cmd_vel과 이름이 같아도 서로 안 보인다(다른 메시지 시스템) → ros_gz_bridge로 잇는다. 인터페이스 이름도 다르다(geometry_msgs/msg/Twist ↔ gz.msgs.Twist)
+  - bridge 인자: `토픽@ROS인터페이스(전체 이름)]Gazebo인터페이스`. `]` ROS → Gazebo, `[` Gazebo → ROS, `@` 양방향
+  - bridge는 ROS 쪽에서 보면 그 토픽의 Subscriber(또는 Publisher) 노드 하나
+- gz 명령: `gz topic -l`(목록), `gz topic -e -t 토픽 -n 1`(한 번 읽기, ROS의 echo --once), `gz topic -t 토픽 -m 인터페이스 -p "내용"`(발행), `gz topic -i -t 토픽`(구독자/발행자)
+- 시뮬레이션이 일시정지면 메시지는 전달돼도 물리 계산이 안 돌아서 아무것도 안 움직이고 odometry도 안 나온다
 
 ### Python
 - def는 만들기, 이름()은 실행. 괄호 없이 쓰면 함수 그 자체 (콜백을 넘길 때)
@@ -339,6 +353,7 @@
 - `AttributeError: 'Numberer' object has no attribute 'hello'`: 지역 변수를 `self.hello`로 읽음
 - 메서드 뒤에 괄호가 없으면(`wait_for_server`) 에러 없이 호출이 안 된다
 - `ros2 interface show` 뒤에 이름이 없으면 `the following arguments are required: type`. 목록에서 찾기는 `list`
+- ros_gz_bridge `Failed to create a bridge ... ROS2 type [Twist] ... No template specialization for the pair`: ROS 인터페이스를 짧은 이름으로 씀 → `geometry_msgs/msg/Twist`
 - `ros2 topic info` 등이 아무것도 안 뜨고 멈춤: Ctrl+Z로 멈춘 프로그램들 사이에 ros2 daemon(안내 데스크)까지 얼어 있었음. 끌 때는 항상 Ctrl+C. 이미 Ctrl+Z 했으면 fg → Ctrl+C
 
 ## 다음 목표
