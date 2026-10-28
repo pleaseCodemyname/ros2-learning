@@ -116,7 +116,19 @@
     - 키를 누를 때만 한 번 발행하고, 플러그인은 마지막 명령을 계속 따라서 키를 떼도 계속 간다 → k로 멈춤
     - 메시지는 echo에 찍히는데 안 움직이면: Gazebo가 일시정지(`gz topic -e -t /stats -n 1`의 `paused: true`). 왼쪽 아래 ▶로 재생
     - 디버깅 순서: 메시지가 어디까지 가나(topic info -v, echo, gz topic -e) → 로봇 상태(odometry, pose/info) → 시뮬레이션 상태(/stats)
-  - g03 완료. 다음: g04 카메라 link + Gazebo 카메라 센서 → bridge로 이미지 토픽 → d10처럼 cx로 /cmd_vel 발행(카메라가 몸에 붙어서 피드백 고리)
+  - g03 완료
+  - g04-1 g04_camera.urdf: g03_drive에 camera_link(한 변 0.05 상자, visual/collision/inertial) + fixed joint base_to_camera, origin `0.175 0 0.075`
+    - origin 계산: joint origin은 부모(몸통) 가운데에서 자식(카메라) 가운데까지. z = 몸통 윗면 0.05 + 반 변 0.025, x = 몸통 앞면 0.2 − 반 변 0.025. 캐스터 z와 같은 "면 위치 ± 반 변"
+    - 실수: link 여는 태그를 `/>`로 닫음(MISMATCHED_ELEMENT), parent/child에 없는 이름(camera), origin 값에 따옴표 없음
+  - g04-2 카메라 센서: URDF 맨 아래 `<gazebo reference="camera_link"><sensor name="camera" type="camera">`(always_on, update_rate 30, topic camera/image, horizontal_fov 1.047, 320×240, clip near 0.05 / far 50)
+    - empty.sdf로 켜면 `gz topic -l`에 이미지 토픽이 없다(에러 없음). empty.sdf의 시스템은 physics, user-commands, scene-broadcaster, contact 4개뿐이고, 센서 설정을 읽어 사진을 만드는 sensors 시스템이 없다
+    - g04_world.sdf: empty.sdf(`/opt/ros/jazzy/opt/gz_sim_vendor/share/gz/gz-sim8/worlds/empty.sdf`)를 복사하고 plugin 목록 끝에 `gz-sim-sensors-system`(render_engine ogre2) 추가 → `/camera/image`, `/camera/camera_info` 생김
+    - 로봇 파일(URDF)의 `<gazebo>`에는 로봇에 붙는 것(diff-drive, 카메라 센서), world 파일(SDF)의 plugin에는 world 전체를 돌리는 시스템(physics, sensors)
+    - 실수: world 파일에 로봇 URDF를 복사하고 sensors plugin을 로봇의 `<gazebo>`에 넣음(Claude가 다시 만듦)
+  - g04-3 bridge: `ros2 run ros_gz_bridge parameter_bridge /camera/image@sensor_msgs/msg/Image[gz.msgs.Image`(Gazebo → ROS는 `[`) 한 번에 맞힘. bridge 전에는 `ros2 topic list`에 없음
+    - `ros2 run my_vision image_viewer --ros-args -p topic:=camera/image`로 로봇 시점 영상: 바닥과 하늘만 보임
+  - 여기서 멈춤(너무 어려움). 다음: Gazebo 위 툴바에서 상자 놓기 → teleop으로 돌며 영상 속 상자가 움직이는지(피드백 고리) → g04-4 빨간 상자 + cx로 /cmd_vel
+    - 다시 띄우기: `gz sim -r ~/ros2_ws/gazebo_practice/g04_world.sdf` → create(g04_camera.urdf) → 이미지 bridge
 - 기초 반복 훈련 (과제만 받고 빈 화면에서 기억으로, 모르면 물어본 부분만 답 받기, 힌트가 있었으면 나중에 다시)
   - A 명령어 단계 (turtlesim, 터미널만) 완료
     - A1 `ros2 node list`(노드 이름 /turtlesim ≠ 실행 파일 이름 turtlesim_node), `ros2 topic list -t`, `ros2 topic echo /turtle1/pose --once`
@@ -143,6 +155,22 @@
       - 서비스 client 부분은 힌트 없이 씀. 실수: create_client vs create_service, 토픽 이름을 /turtle1 그대로, 구독에 큐 깊이 빠짐, `Pose()`로 빈 객체, `msg.x`를 꺼낸 뒤 또 `.x`, 성공 후 spin 위치
     - 함수 이름(call_async, send_goal_async, get_result_async, spin_until_future_complete)은 알려 줘야 했음. 순서는 대부분 직접 맞힘
   - 다음: Gazebo g03-2 복귀. 실제 작업에서 같은 구조를 다시 쓰면서 익히기. 세션 시작 때 빈 파일에 노드 틀을 기억으로 한 번 쓰는 워밍업
+- 토픽·서비스·액션 다음 단계 (g04에서 막혀 순서대로 다시: 1 패키지 → 2 파라미터 → 3 launch → 4 tf → 5 URDF + RViz → 6 Gazebo). URDF가 어려웠던 건 tf(좌표계)가 덜 잡힌 채로 넘어가서
+  - 1단계 패키지 (src/step_pkg, src/step2_pkg) 완료
+    - 1-1 `ros2 pkg create --build-type ament_python step_pkg`(~/ros2_ws/src에서). 라이선스 WARNING은 무시. 구조: package.xml, setup.py, 안쪽 step_pkg/(노드 .py 넣는 곳, __init__.py), resource/, test/
+    - 1-2 b02_talker를 `step_pkg/step_pkg/talker.py`로 복사 → setup.py console_scripts에 `"talker = step_pkg.talker:main"` → ~/ros2_ws에서 `colcon build --packages-select step_pkg` → `source install/setup.bash` → `ros2 run step_pkg talker`. talker는 로그가 없어서 터미널에 아무것도 안 찍힘(echo로 확인)
+    - 1-3 src만 고치고 빌드 안 하면 예전 값("안녕") 그대로. ros2 run은 install을 실행한다(`--symlink-install`이면 파이썬 수정은 빌드 없이 반영, setup.py 변경은 여전히 빌드)
+    - 1-4 listener 추가(등록 줄 사이 쉼표), 1-5 step2_pkg를 처음부터 혼자(hello)
+    - 노드끼리 연결은 패키지와 상관없다(python3로 따로 켠 b02/b03도 통신). 패키지가 필요한 이유는 ros2 run/launch가 `패키지 + 실행이름`으로 노드를 찾기 때문
+    - 명령은 외우지 않는다(-h, 예전 setup.py 복사, `--node-name`). 기억할 것은 코드 위치 / setup.py 등록 / 빌드 후 반영
+    - 실수: `--build-type ament-python`(하이픈, invalid choice)
+  - 2단계 파라미터 (step_pkg talker) 완료
+    - `__init__`에서 `self.declare_parameter("word", "안녕")`, 값은 `self.get_parameter("word").value`. 실행: `ros2 run step_pkg talker --ros-args -p word:=하이`
+    - 2-2 get_parameter가 콜백 안 → `ros2 param set /talker word 바이`가 다음 콜백부터 반영. `ros2 param list`(word 외에 use_sim_time 등 기본), `ros2 param get`
+    - 2-3 `__init__`에서 `self.word = self.get_parameter(...).value`로 한 번 복사 → set 성공, get은 "바이"인데 echo는 계속 "하이"(조용한 실패). 실행 중 바꿀 값(속도, 목표)은 콜백에서, 시작 때 한 번이면 되는 값(토픽 이름)은 __init__에서
+    - 노드를 다시 켜면 set했던 값은 사라지고 -p 값(또는 기본값)으로 시작
+    - 실수: 파라미터를 타이머 콜백 매개변수 `(self, word)`로 받음, 선언만 하고 msg.data에 고정 문자열, 코드 고치고 빌드 안 함
+  - 다음: 3단계 launch(talker + listener를 launch 하나로, 파라미터도 launch에서)
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -185,6 +213,14 @@
 - 노드 틀 + 빈칸 채울 때 질문 3개: Q1 내보내는 게 있나 → Publisher, Q2 알아야 할 게 있나 → Subscriber, Q3 받는 것 없이 반복할 일이 있나 → 타이머. 기억할 값은 __init__에서 self.이름 = 처음값 (이름은 내가 짓는 것, 예약어 아님)
 - 노드 파일의 틀: import / class(Node 상속) / __init__(한 번: Publisher, Subscriber 생성) / 콜백(매번) / main(init → 노드 생성 → spin → 정리)
 - 패키지와 빌드: 고치는 곳은 src, 실행되는 곳은 install. 고치면 colcon build
+  - 패키지 = package.xml(이름, 의존성) + setup.py(실행 명령 등록)가 있는 폴더. build-type은 파이썬이면 ament_python, C++이면 ament_cmake
+  - 노드 코드는 `src/패키지/패키지/파일.py`(바깥은 ROS 패키지, 안쪽은 파이썬 모듈). `'실행이름 = 패키지.파일:main'`에서 파일은 .py 없이
+  - 하나만 빌드: `colcon build --packages-select 패키지`. 빌드 결과 실행 파일은 `install/패키지/lib/패키지/실행이름`
+- 파라미터: 실행할 때 밖에서 넣는 값. 같은 코드를 값만 바꿔 쓴다(image_viewer의 topic, turtle_tf_broadcaster의 turtlename)
+  - 선언은 __init__에서 declare_parameter(이름, 기본값). 선언 안 한 파라미터는 꺼낼 수 없다. 파라미터는 함수 인자로 들어오지 않고 노드 안에 저장된다
+  - `--ros-args -p 이름:=값`(시작 때), `ros2 param list / get / set`(실행 중). 값은 노드가 살아 있는 동안만 유지
+  - get_parameter를 어디서 하느냐가 실행 중 변경 반영 여부를 정한다(콜백: 반영 / __init__에서 self.에 복사: 안 됨)
+- 패키지 → 파라미터 → launch: 노드를 이름으로 등록 → 노드마다 다른 값 → 여러 노드를 각자 값으로 한 번에 실행
   - 새 노드는 setup.py의 console_scripts에 `'이름 = 패키지.파일:main'` 등록
   - source는 패키지를 새로 만들었을 때만 다시 필요
 - Twist 단위: linear.x는 m/s(turtlesim에서는 창 칸 기준), angular.z는 rad/s(1.0이면 1초에 약 57도). z축은 늘 위를 향하고, 위에서 볼 때 +는 반시계(왼쪽), -는 시계(오른쪽)
@@ -300,6 +336,8 @@
   - bridge는 ROS 쪽에서 보면 그 토픽의 Subscriber(또는 Publisher) 노드 하나
 - gz 명령: `gz topic -l`(목록), `gz topic -e -t 토픽 -n 1`(한 번 읽기, ROS의 echo --once), `gz topic -t 토픽 -m 인터페이스 -p "내용"`(발행), `gz topic -i -t 토픽`(구독자/발행자)
 - 시뮬레이션이 일시정지면 메시지는 전달돼도 물리 계산이 안 돌아서 아무것도 안 움직이고 odometry도 안 나온다
+- Gazebo는 world 파일에 적힌 시스템(plugin)만 실행한다. 카메라 같은 센서는 world에 `gz-sim-sensors-system`이 있어야 사진을 만든다(empty.sdf에는 없음, 없으면 에러 없이 토픽이 안 생김)
+- 카메라 센서: `<gazebo reference="link 이름">` 안에 `<sensor type="camera">`. 센서는 link 가운데에 있으니 clip near를 자기 상자 반 변보다 크게. 사진은 Gazebo 토픽이라 bridge(`[`)로 sensor_msgs/msg/Image로 가져온다
 
 ### Python
 - def는 만들기, 이름()은 실행. 괄호 없이 쓰면 함수 그 자체 (콜백을 넘길 때)
@@ -354,6 +392,9 @@
 - 메서드 뒤에 괄호가 없으면(`wait_for_server`) 에러 없이 호출이 안 된다
 - `ros2 interface show` 뒤에 이름이 없으면 `the following arguments are required: type`. 목록에서 찾기는 `list`
 - ros_gz_bridge `Failed to create a bridge ... ROS2 type [Twist] ... No template specialization for the pair`: ROS 인터페이스를 짧은 이름으로 씀 → `geometry_msgs/msg/Twist`
+- `invalid choice: 'ament-python' (choose from ... 'ament_python')`: `{ }` 목록의 값은 한 글자까지 같게(하이픈 vs 밑줄)
+- `talker_callback() missing 1 required positional argument: 'word'`: 타이머 콜백에 매개변수를 추가함. 파라미터는 콜백 인자가 아니라 `self.get_parameter('word').value`로 꺼낸다
+- `ros2 param set`이 성공했는데 동작이 그대로: 값을 __init__에서 self.에 한 번 복사해 둠
 - `ros2 topic info` 등이 아무것도 안 뜨고 멈춤: Ctrl+Z로 멈춘 프로그램들 사이에 ros2 daemon(안내 데스크)까지 얼어 있었음. 끌 때는 항상 Ctrl+C. 이미 Ctrl+Z 했으면 fg → Ctrl+C
 
 ## 다음 목표
