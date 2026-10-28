@@ -170,7 +170,13 @@
     - 2-3 `__init__`에서 `self.word = self.get_parameter(...).value`로 한 번 복사 → set 성공, get은 "바이"인데 echo는 계속 "하이"(조용한 실패). 실행 중 바꿀 값(속도, 목표)은 콜백에서, 시작 때 한 번이면 되는 값(토픽 이름)은 __init__에서
     - 노드를 다시 켜면 set했던 값은 사라지고 -p 값(또는 기본값)으로 시작
     - 실수: 파라미터를 타이머 콜백 매개변수 `(self, word)`로 받음, 선언만 하고 msg.data에 고정 문자열, 코드 고치고 빌드 안 함
-  - 다음: 3단계 launch(talker + listener를 launch 하나로, 파라미터도 launch에서)
+  - 3단계 launch (step_pkg/launch/talk_listen_launch.py) 완료
+    - 3-1 `generate_launch_description()`이 `LaunchDescription([Node(package='step_pkg', executable='talker'), Node(... 'listener')])`를 돌려준다. setup.py data_files에 `('share/step_pkg/launch', ['launch/talk_listen_launch.py'])` → 빌드 → `ros2 launch step_pkg talk_listen_launch.py`. 노드마다 별도 프로세스(pid), 로그는 한 터미널에 `[listener-2]`처럼 모여 나오고 Ctrl+C 한 번에 같이 꺼진다
+    - 3-2 `parameters=[{'word': '하이'}]`(리스트 안에 딕셔너리) = `-p word:=하이`. launch 파일도 install에서 실행되니 고치면 빌드
+    - 3-3 talker 두 개(하이/바이): listener는 같은 /greeting에서 둘 다 번갈아 받음. 이름이 같으면 `ros2 node list`에 /talker 두 번 + `share an exact name` 경고(param set 등에서 구분 불가) → `name='talker_hi'`, `name='talker_bye'`로 코드의 노드 이름을 덮어씀. name은 노드 이름만 바꾸고 토픽은 그대로
+    - 실수: data_files 경로를 `('share/' + "step_pkg", '/launch', [...])`처럼 쉼표로 나눔(값이 두 개여야 함: 설치 경로 문자열, 파일 리스트), 수정 후 저장 안 함
+    - launch는 노드가 무슨 통신(토픽/서비스)을 하는지 상관없이 켜기만 한다. talker/listener는 요청/응답이 아니라 토픽
+  - 다음: 4단계 tf(좌표계). URDF origin이 어려웠던 이유를 여기서 푼다
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -258,6 +264,9 @@
 - Pose: x(창 왼쪽 → 오른쪽), y(창 아래 → 위, OpenCV와 반대), theta(바라보는 방향 rad: 0 → 오른쪽, 1.57 ↑, ±3.14 ←, -1.57 ↓), linear_velocity/angular_velocity는 지금 속도(상태 보고서, Twist는 주문서)
   - Pose의 x(창 기준 위치)와 Twist의 linear.x(거북이 코 방향 속도)는 다른 x. Pose는 내가 바꾸는 값이 아니라 cmd_vel 주문의 결과
 - launch: ros2 run 여러 개를 한 번에 실행
+  - `Node(package=, executable=)` = `ros2 run 패키지 실행이름`, `parameters=[{'이름': 값}]` = `-p 이름:=값`, `name='새 이름'` = 같은 코드를 다른 노드 이름으로
+  - setup.py 두 칸: console_scripts는 노드 등록(ros2 run, Node(executable=)가 찾음), data_files는 launch 파일을 `share/패키지/launch`로 복사(ros2 launch가 찾음)
+  - 같은 이름의 노드가 둘이면 경고, ros2 param/node 명령이 어느 쪽인지 구분 못 한다
 - tf: frame은 "누구 기준으로 재는가". /tf 토픽에 "world 기준으로 나는 여기"를 올리면(broadcaster) 다른 조합은 계산해 준다(listener, lookup_transform)
   - pose의 x, y는 창 기준(가로, 세로). 거북이 기준 tf의 x, y는 앞쪽, 왼쪽
 - colcon: 여러 패키지를 모아서 빌드하는 도구. 반드시 ~/ros2_ws에서 실행 (src 안에서 하면 src/build 등이 잘못 생김)

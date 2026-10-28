@@ -10,6 +10,8 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/step_pkg/launch', # 설치될 폴더
+            ['launch/talk_listen_launch.py']) # 복사할 파일
     ],
     install_requires=['setuptools'],
     zip_safe=True,
