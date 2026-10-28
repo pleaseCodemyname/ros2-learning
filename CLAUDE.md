@@ -115,7 +115,24 @@
     - A4 `ros2 action list -t`, `ros2 action send_goal /turtle1/rotate_absolute turtlesim/action/RotateAbsolute "{theta: 1.57}" -f`
     - 종합: 이름 비워 spawn(turtle2) → 왼쪽(theta ±3.14)으로 회전 → 앞으로 2.0 → x가 8.0 → 5.98로 줄어듦(명령은 거북이 기준, Pose는 창 기준) → clear. list -t → interface show → -h 순서로 스스로 찾음
     - 막힌 곳: pub 동작 이름(run, echo로 시도), 바깥 따옴표, Twist 중첩, 콜론 뒤 띄어쓰기, 목표에 결과/진행 칸(delta, remaining)까지 넣음
-  - 다음: B 코드 단계 (basics/ 폴더, b01 빈 노드 → b02 타이머+Pub → b03 Sub → b04 Sub+Pub → b05 turtlesim → b06 서비스 client → b07 액션 client)
+  - B 코드 단계 (basics/ 폴더, 빌드 없이 `python3 basics/파일.py`) 완료
+    - b01_hello: 빈 노드, `__init__`에서 로그 한 번. `rclpy.spin`이 있어서 안 꺼진다(없으면 main 끝까지 실행하고 종료). Pub/Sub/타이머 없음(로그는 publish가 아니라 터미널 출력)
+    - b02_talker: 타이머 1초 + `/greeting`에 `std_msgs/msg/String` 발행. 인터페이스는 새 토픽이면 내가 고른다(`ros2 interface list | grep String`, grep은 대소문자 구분, `-i`로 무시)
+      - 실수: spin 자리에 `rclpy.init(talker)`, 타이머 콜백에 `(self, msg)`, `msg = "안녕"`(str), `String("안녕")`(필드 이름 없음), `self.data =`(노드 속성), `publish()` 빈칸, `self.publisher_ = self.publisher_.publish(msg)`(두 번째 콜백에서 NoneType 에러)
+    - b03_listener: `/greeting` 구독, `받음: {msg.data}`. talker를 껐다 켜도 이어서 받는다(토픽 이름으로 연결, discovery). 꺼져 있던 동안의 메시지는 없다
+      - 실수: 구독 콜백에 msg 매개변수 없음, 콜백 안에서 `msg = String()`으로 받은 값을 빈 객체로 덮어씀
+    - b04_numberer: `/greeting` 구독 → `self.count` 증가 → `/numbered`에 `"1: 안녕"` 발행. echo에서 `': '`가 들어간 값은 YAML이 따옴표로 감싸 보여 준다. 노드를 재시작하면 count는 0부터
+      - 실수: create_publisher에 노드 클래스(Numberer), 지역 변수에 self., `publish(hello)`(str), f-string에 `{out}` / `{out.data}`(받은 msg가 아니라 새로 만든 빈 객체)
+    - b05_mover: `/turtle1/pose` 구독 + `/turtle1/cmd_vel` 발행, x < 8.0이면 linear.x 1.0, 아니면 0. 8.10에서 멈춤(넘은 걸 확인한 뒤에야 멈춤 명령)
+      - 실수: Pose를 geometry_msgs에서 import(→ `from turtlesim.msg import Pose`, Jazzy에는 turtlesim_msgs 없음), `linear.x`만 씀, `cmd.x`, `publish(x)`
+    - b06_spawner: `/spawn` 서비스 client. `__init__`: create_client + wait_for_service, main: Request → call_async → spin_until_future_complete → `future.result().name` → if/else 로그 → 스스로 종료
+      - 실수: create_client에 큐 깊이 10, `spawner.x = 2.0`(노드 속성, 요청 객체가 아님), `future.result()`를 그대로 name으로 비교
+    - b07_rotator: 액션 client + feedback 콜백. 기다리기가 두 번(접수 → goal_handle, 결과 → status/result.delta). 거북이가 이미 목표 방향이면 feedback 한 줄, delta 0
+      - 실수: `wait_for_server` 괄호 빠짐(에러 없이 아무 일 안 함), `Goal(theta:1.57)`(YAML 문법), `rotator.` 뒤 빈칸, `feedback.remaining`(→ `.feedback.remaining`), self.에 저장만 하고 로그 없음
+    - b08_runner (B 종합): `/spawn`으로 (1.0, 5.0)에 runner 생성 → 실패면 error 후 종료, 성공이면 `rclpy.spin`으로 `/runner/pose` 구독 + `/runner/cmd_vel` 발행해 x 8.0에서 멈춤(8.03). turtlesim을 다시 켜면 거북이가 사라져서 같은 이름도 성공한다
+      - 서비스 client 부분은 힌트 없이 씀. 실수: create_client vs create_service, 토픽 이름을 /turtle1 그대로, 구독에 큐 깊이 빠짐, `Pose()`로 빈 객체, `msg.x`를 꺼낸 뒤 또 `.x`, 성공 후 spin 위치
+    - 함수 이름(call_async, send_goal_async, get_result_async, spin_until_future_complete)은 알려 줘야 했음. 순서는 대부분 직접 맞힘
+  - 다음: Gazebo g03-2 복귀. 실제 작업에서 같은 구조를 다시 쓰면서 익히기. 세션 시작 때 빈 파일에 노드 틀을 기억으로 한 번 쓰는 워밍업
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -169,6 +186,28 @@
   - 내용 `"{칸: 값}"`은 YAML: 바깥은 `" "`로 묶어 한 덩어리(셸은 띄어쓰기마다 자른다), 안쪽 글자는 `' '`, 콜론 뒤 한 칸, 상자 안 상자는 `{linear: {x: 2.0}}`, float 칸은 3.0처럼
   - 요청/목표에는 `---` 위쪽 칸만 넣는다. 아래는 돌려받는 칸
   - 명령의 `making request: Spawn_Request(x=3.0, ...)` 줄은 파이썬 코드 모양 그대로 → 코드로 옮길 때 참고(curl 먼저 → 코드)
+- 코드로 쓸 때 정리 (B 단계)
+  - 큐 깊이: create_publisher / create_subscription의 마지막 10. 아직 전달 못 한 메시지를 몇 개까지 쌓아 둘지. 구독에도 필수. create_client / ActionClient에는 넣지 않는다
+  - 콜백 매개변수: 타이머는 `(self)`, 구독은 `(self, msg)`, 액션 feedback은 `(self, feedback_msg)`. spin이 넘겨주는 값의 개수와 맞아야 한다
+  - 보낼 때: `out = String()` → `out.data = ...` → `publish(out)`. 받을 때: 매개변수 `msg`에서 `msg.data`. 받는 콜백에서 `String()`/`Pose()`를 새로 만들면 받은 값이 아니라 빈 객체(0, '')
+  - `str`은 파이썬 문자열, `String`은 data 필드 하나를 가진 메시지 클래스. 인터페이스 정의의 소문자 `string`, `float32`는 필드 타입(파이썬 str, float)
+  - `Twist()`는 모든 필드가 0.0으로 시작. 중첩 필드는 `cmd.linear.x`
+  - `publish()`는 아무것도 반환하지 않는다(None). 결과를 `=`로 받지 않는다
+  - `Talker()`, `String()`, `Spawn.Request()`는 모두 클래스의 인스턴스 생성. 생성할 때 `__init__`이 한 번 실행된다
+  - `self`는 이 노드 인스턴스. 메서드를 부를 때 파이썬이 자동으로 넣는다. 다른 메서드에서 다시 쓸 값만 `self.`에 저장, 이번 콜백에서만 쓰는 값은 지역 변수
+  - create_timer / create_subscription은 콜백을 등록만 한다. 실제 호출은 spin이 한다
+  - 함수 세 가지: `create_publisher`(토픽에 보냄), `create_client`(남이 제공하는 서비스를 호출), `create_service`(내가 서비스를 제공). 액션 client는 Node 메서드가 아니라 `ActionClient(self, 인터페이스, '액션 이름')`(`from rclpy.action import ActionClient`)
+  - 토픽/서비스/액션 이름은 종류가 다르다. 목록 명령도 따로(`ros2 topic|service|action list`). 함수 첫 인자 이름 msg_type / srv_type은 둘 다 인터페이스 클래스 자리
+  - 토픽 이름: 내 노드끼리 쓰는 새 토픽은 내가 정한다(/greeting). 다른 프로그램이 쓰는 토픽은 그 프로그램이 정한 이름 그대로(spawn한 거북이는 `/이름/pose`, `/이름/cmd_vel`). 틀리면 에러 없이 아무 일도 안 일어난다
+  - 서비스 client 순서: (`__init__`) create_client → wait_for_service() / (main) `Spawn.Request(...)` → `future = node.cli.call_async(req)` → `rclpy.spin_until_future_complete(node, future)` → `future.result().name`
+  - 액션 client 순서: (`__init__`) ActionClient → wait_for_server() / (main) `RotateAbsolute.Goal(theta=1.57)` → `send_goal_async(goal, feedback_callback=node.feedback_callback)` → 기다림 → `goal_handle = future.result()` → `goal_handle.get_result_async()` → 기다림 → `output.status`, `output.result.delta`. feedback은 `feedback_msg.feedback.remaining`
+  - future는 call_async/send_goal_async가 바로 돌려주는 객체(JS Promise). 반환 직후엔 비어 있다
+  - `rclpy.spin`은 Ctrl+C까지 계속, `spin_until_future_complete`는 future가 완료되면 끝. 둘 다 기다리는 동안 콜백을 처리한다. 한 번 호출하고 계속 돌려면 응답 확인 후 `rclpy.spin`(b08)
+  - 서비스 응답에는 에러 코드/메시지 필드가 없다. 실패 이유는 서버 로그에만 있다(`A turtle named [b07] already exists`)
+  - YAML(명령어 내용)은 `theta: 1.57`, 파이썬 인자는 `theta=1.57`
+  - `try` 안에서 return해도 `finally`는 실행된다
+  - 액션 delta는 끝난 위치에서 시작 위치까지의 각도라 반시계로 돌면 음수. turtlesim 회전은 1 rad/s, feedback 약 60번/초
+- `ros2 service type /spawn`: 서비스 하나의 인터페이스. `ros2 interface list`: 전체 인터페이스 목록. `ros2 interface proto <인터페이스>`: pub/call에 쓸 YAML 빈 틀
 - 인터페이스: 지금까지 "양식"이라고 부른 것의 공식 이름. TypeScript interface 같은 스키마. msg(토픽) / srv(서비스) / action(액션) 세 종류를 묶어서 부름
 - Pose: x(창 왼쪽 → 오른쪽), y(창 아래 → 위, OpenCV와 반대), theta(바라보는 방향 rad: 0 → 오른쪽, 1.57 ↑, ±3.14 ←, -1.57 ↓), linear_velocity/angular_velocity는 지금 속도(상태 보고서, Twist는 주문서)
   - Pose의 x(창 기준 위치)와 Twist의 linear.x(거북이 코 방향 속도)는 다른 x. Pose는 내가 바꾸는 값이 아니라 cmd_vel 주문의 결과
@@ -290,6 +329,16 @@
 - `object has no attribute 'theta:1.57'`: 콜론 뒤 띄어쓰기가 없어서 전체를 칸 이름으로 읽음
 - `Package '/turtle2/cmd_vel' not found`: `ros2 run`(프로그램 실행)에 토픽 이름을 넣음. 토픽에 올리기는 `ros2 topic pub`
 - `invalid choice ... choose from 'info', 'list', 'send_goal', 'type'`: 동작 자리가 빠지거나 틀림. 목록에서 고른다
+- `AttributeError: 'NoneType' object has no attribute 'publish'`: 어딘가에서 그 이름에 None을 덮어씀(publish 결과를 self.publisher_에 저장). 첫 번째는 성공, 두 번째부터 에러
+- `TypeError: Expected std_msgs.msg.String, got <class 'str'>`: publish에 메시지 객체가 아니라 str을 넘김
+- `publish() missing 1 required positional argument: 'msg'`: publish 괄호가 비어 있음
+- `takes 3 positional arguments but 4 were given` (create_client): 큐 깊이 10을 넣음
+- `missing 1 required positional argument: 'qos_profile'` (create_subscription): 마지막 큐 깊이 10이 빠짐
+- `ModuleNotFoundError: No module named 'turtlesim_msgs'`: Jazzy에서는 `turtlesim.msg`. 인터넷 예제의 패키지 이름이 내 환경과 다를 수 있다 → `ros2 interface list`로 확인
+- `AttributeError: 'float' object has no attribute 'x'`: 이미 `msg.x`로 꺼낸 숫자에 또 `.x`
+- `AttributeError: 'Numberer' object has no attribute 'hello'`: 지역 변수를 `self.hello`로 읽음
+- 메서드 뒤에 괄호가 없으면(`wait_for_server`) 에러 없이 호출이 안 된다
+- `ros2 interface show` 뒤에 이름이 없으면 `the following arguments are required: type`. 목록에서 찾기는 `list`
 - `ros2 topic info` 등이 아무것도 안 뜨고 멈춤: Ctrl+Z로 멈춘 프로그램들 사이에 ros2 daemon(안내 데스크)까지 얼어 있었음. 끌 때는 항상 Ctrl+C. 이미 Ctrl+Z 했으면 fg → Ctrl+C
 
 ## 다음 목표
