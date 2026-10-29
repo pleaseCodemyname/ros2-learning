@@ -176,7 +176,39 @@
     - 3-3 talker 두 개(하이/바이): listener는 같은 /greeting에서 둘 다 번갈아 받음. 이름이 같으면 `ros2 node list`에 /talker 두 번 + `share an exact name` 경고(param set 등에서 구분 불가) → `name='talker_hi'`, `name='talker_bye'`로 코드의 노드 이름을 덮어씀. name은 노드 이름만 바꾸고 토픽은 그대로
     - 실수: data_files 경로를 `('share/' + "step_pkg", '/launch', [...])`처럼 쉼표로 나눔(값이 두 개여야 함: 설치 경로 문자열, 파일 리스트), 수정 후 저장 안 함
     - launch는 노드가 무슨 통신(토픽/서비스)을 하는지 상관없이 켜기만 한다. talker/listener는 요청/응답이 아니라 토픽
-  - 다음: 4단계 tf(좌표계). URDF origin이 어려웠던 이유를 여기서 푼다
+  - 4단계 tf(좌표계) 진행 중. 실습 전에 서술형 퀴즈로 개념부터(사용자 요청, 정답은 바로 안 알려 주고 어디서 어긋났는지만)
+    - 퀴즈 Q1~Q6: 거북이 (5.5, 5.5), 별 (7.5, 5.5) 고정, 거북이가 보는 방향만 바꿈
+      - world 기준 별은 항상 (7.5, 5.5). 거북이 기준 별은 → (theta 0): (2, 0) 앞 / ↑ (1.57): (0, −2) 오른쪽 / ← (3.14): (−2, 0) 뒤
+      - 거북이 축은 거북이와 같이 돈다. x+는 항상 코 방향, y+는 항상 왼쪽(x+에서 반시계 90°). 바뀌는 건 그 축이 창의 어느 쪽을 가리키느냐
+      - Q5 base_link → camera_link(0.175 0 0.075, 회전 없음)에서 카메라 기준 (1, 0, 0)은 몸통 기준 (1.175, 0, 0.075). 회전이 없으면 더하기
+      - 막힌 곳: 문제에 적힌 숫자가 이미 world 기준인 걸 놓침, 빼는 순서(대상 − 기준), 거북이가 돌면 world 숫자도 바뀐다고 생각, theta를 위치 칸에 넣음, linear.x가 항상 창 오른쪽이라고 생각, xyz/rpy를 속도로 생각
+      - linear.x가 창 오른쪽이 아니라 코 방향인 건 실험으로 확인: `ros2 service call /turtle1/teleport_absolute turtlesim/srv/TeleportAbsolute "{x: 5.5, y: 5.5, theta: 1.57}"` → `linear.x 2.0` → pose가 (5.5, 7.5)(위로 감)
+    - 4-1 `ros2 run tf2_ros static_transform_publisher --x 1 --y 0 --z 0 --frame-id world --child-frame-id robot` → `ros2 run tf2_ros tf2_echo world robot`은 [1, 0, 0], `tf2_echo robot world`는 [-1, 0, 0]. 관계는 하나만 올렸는데 반대 방향은 tf가 계산
+    - 4-2 `--yaw 1.57` 추가 → world 기준 robot은 [1, 0, 0] yaw 1.57, robot 기준 world는 [0, 1, 0] yaw -1.57(예상 맞힘). 1.57이 정확한 90°(1.5708)보다 작아서 -0.001, -89.954° 같은 오차
+      - 가정 문제 `--yaw -1.57`(robot ↓): robot 기준 world는 [0, -1, 0] yaw +1.57
+    - 4-3 RViz에서 tf 화살표 보기: static_transform_publisher를 켜 둔 채 `rviz2` → Fixed Frame에 `world` 입력(기본 map은 없어서 에러) → Add → TF → Show Names, Views Pitch 1.57로 위에서 보기
+      - yaw 1.57: robot 🔴 = world 🟢과 같은 쪽, robot 🟢 = world 🔴의 반대쪽. yaw -1.57: 둘 다 반대로(robot 🔴 = world 🟢 반대쪽, robot 🟢 = world 🔴 같은 쪽). 실행 전 예상 모두 맞힘
+      - 화면이 돌아가 있으면 "화면 위 = 정면"으로 읽으면 틀린다. 각 frame의 🔴가 정면, 기준 frame(world) 화살표와 같은 쪽/반대쪽으로 비교해서 읽는다
+      - 노란 선 + 분홍 화살표는 부모-자식 연결(자식 → 부모를 가리킴), 파란 점은 위에서 본 🔵 z축
+      - `--yaw`는 지금 상태에서 더 돌리는 양이 아니라 world 기준 전체 각도. 새로 켜면 바뀌고 더해지지 않는다(rotate_absolute와 같음, Twist angular.z는 더 도는 속도)
+      - 막힌 곳: 화면 방향 맞추기 설명(A/B 두 방식)이 헷갈림 → 화면은 그대로 두고 world 화살표와 같은 쪽/반대쪽 비교만으로 충분. 바로 머리로 돌리기는 어렵고 그리면 안다(정상, 그림 → tf2_echo 숫자 → RViz 화면 순서로 확인)
+    - 4-4 URDF joint = tf: `ros2 launch urdf_tutorial display.launch.py model:=$HOME/ros2_ws/gazebo_practice/g04_camera.urdf` 후 tf2_echo
+      - `base_link camera_link` [0.175, 0, 0.075], `base_link caster` [-0.15, 0, -0.05]: joint origin 숫자 그대로. joint origin = parent 가운데에서 child 가운데까지를 parent 축으로 잰 값
+      - 이 tf는 robot_state_publisher가 URDF를 읽어서 올린다(4-3에서 static_transform_publisher로 직접 한 일을 joint마다 해 줌). `camera_link base_link` [-0.175, 0, -0.075]는 URDF에 없지만 tf가 계산
+      - 예상: 방향(앞/뒤)은 맞혔는데 처음엔 z(위/아래)를 안 봄
+    - 4-5 직접 연결 안 된 frame: `camera_link caster` [-0.325, 0, -0.125](예상 맞힘). camera → base_link → caster 두 구간을 더해서 이어 붙인다(빼기가 아님). "카메라가 본 컵 → world 위치"가 이 계산
+    - 4-6 움직이는 joint: `base_link left_wheel`은 슬라이더를 움직여도 Translation [0, 0.18, 0] 그대로, RPY의 pitch만 바뀜(axis 0 1 0). fixed joint는 `At time 0.0`(/tf_static 한 번), continuous는 실제 시각(/tf로 계속)
+      - 슬라이더 창을 닫으면 바퀴 tf가 안 올라와서 tf2_echo가 첫 줄에서 계속 기다림(`ros2 node list`에 joint_state_publisher_gui 없음)
+    - RPY 사다리 (그려도 안 그려진다고 해서 기초부터, 오른손으로 frame 만들기)
+      - 오른손: 손바닥이 왼쪽, 검지 = 🔴 x 앞, 중지 = 🟢 y 왼쪽, 엄지 = 🔵 z 위
+      - R1 yaw: 엄지 고정, 검지·중지가 돈다. +1.57이면 검지 왼쪽, 중지 뒤. R2 pitch: 중지 고정, 검지가 앞 아래로 숙여지면 엄지는 앞 위로(둘은 항상 90°). R3 roll: 검지 고정, 엄지가 오른쪽으로 기울면 중지는 왼쪽 위로
+      - 푸는 순서: 0이 아닌 자리 찾기(첫째 roll / 둘째 pitch / 셋째 yaw) → 그 손가락 고정 → 부호 방향으로 돌려 보기
+      - 문제: P1 [0, 0, 1.57] yaw 왼쪽, P2 [0, 0.5, 0] pitch 🟢 그대로, P3 rpy="0 0 -1.57" 검지 오른쪽 + 중지 앞, P4 드론이 코를 숙임 = pitch, P5 u06 바퀴 rpy="1.57 0 0" = roll, 엄지(원통 길이 방향)가 오른쪽으로 → 원통이 좌우로 놓여 바퀴가 섬
+      - 막힌 곳: rpy 숫자를 "그 손가락이 그대로/90°"로 읽음(0은 그 축 둘레로 안 돌렸다는 뜻), yaw를 "엄지를 꺾는 것"으로 생각(엄지는 고정), 바퀴 회전(pitch)과 몸통 전진(x 위치)을 섞음, + / − 부호 방향
+      - Claude 실수: pitch 그림에서 🔵를 뒤쪽 위로 그림(앞쪽 위가 맞음). 손으로 확인하며 바로잡음
+    - tf2_echo 출력에서 지금 볼 것은 Translation과 RPY (radian) 두 줄. Quaternion, Matrix는 같은 정보의 다른 형식(코드에서는 lookup_transform 등이 계산)
+    - 다음: 5단계 URDF + RViz(tf로 origin을 계산하고 tf2_echo/RViz로 확인하면서)
+
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
 ## 개념 정리
@@ -269,6 +301,15 @@
   - 같은 이름의 노드가 둘이면 경고, ros2 param/node 명령이 어느 쪽인지 구분 못 한다
 - tf: frame은 "누구 기준으로 재는가". /tf 토픽에 "world 기준으로 나는 여기"를 올리면(broadcaster) 다른 조합은 계산해 준다(listener, lookup_transform)
   - pose의 x, y는 창 기준(가로, 세로). 거북이 기준 tf의 x, y는 앞쪽, 왼쪽
+  - frame = 원점 + 축 방향 + 단위. 같은 점도 frame마다 숫자가 다르다. tf는 frame 사이 관계를 알고 있어서 A 기준 숫자를 B 기준 숫자로 바꿔 준다(카메라가 본 컵 → 몸통 기준 위치)
+  - transform = 이동(translation, m) + 회전(rotation, rad). 지금 놓인 위치와 방향만, 속도는 없다(속도는 Twist). URDF joint origin의 xyz가 이동, rpy가 회전
+  - `tf2_echo A B` = A 기준으로 잰 B. Translation은 A에서 B까지를 A의 축으로 잰 값(대상 − 기준을 기준 축 방향으로), 회전은 A의 x축이 B의 x축과 같은 방향이 되려면 얼마나 돌아야 하나. A, B를 바꾸면 회전 부호가 뒤집히고 이동은 다시 계산된다
+  - yaw = turtlesim theta와 같은 각도. +는 반시계(왼쪽), -는 시계(오른쪽). → 0, ↑ 1.57, ← ±3.14, ↓ -1.57
+  - tf2_echo 출력: Translation, Rotation(Quaternion xyzw는 컴퓨터용, [0, 0, 0, 1]이면 회전 없음 / RPY는 사람이 읽는 각도, URDF rpy와 같은 형식), Matrix(맨 오른쪽 열 위 세 숫자가 Translation)
+  - RPY = roll(🔴 x축 둘레), pitch(🟢 y축 둘레), yaw(🔵 z축 둘레) 순서, 단위 rad. 위치가 아니라 그 축을 꽂고 돈 각도. 꽂은 축은 그대로, 나머지 둘이 직각을 유지한 채 같이 돈다
+    - + 방향: roll은 위(🔵)가 오른쪽으로 기울고, pitch는 앞(🔴)이 아래로 숙여지고, yaw는 앞(🔴)이 왼쪽으로 돈다
+    - 바닥 로봇 몸통은 주로 yaw만(turtlesim theta). pitch는 경사로·바퀴·드론 숙이기·카메라 숙여 달기, roll은 옆으로 기울기·u06 원통 세우기
+  - URDF joint = parent → child tf. robot_state_publisher가 URDF(fixed는 /tf_static 한 번)와 /joint_states(움직이는 joint는 /tf 계속)로 올린다. 직접 연결 안 된 frame 사이도 트리를 따라 이어 붙여 계산
 - colcon: 여러 패키지를 모아서 빌드하는 도구. 반드시 ~/ros2_ws에서 실행 (src 안에서 하면 src/build 등이 잘못 생김)
 
 ### OpenCV / 영상
@@ -404,6 +445,11 @@
 - `invalid choice: 'ament-python' (choose from ... 'ament_python')`: `{ }` 목록의 값은 한 글자까지 같게(하이픈 vs 밑줄)
 - `talker_callback() missing 1 required positional argument: 'word'`: 타이머 콜백에 매개변수를 추가함. 파라미터는 콜백 인자가 아니라 `self.get_parameter('word').value`로 꺼낸다
 - `ros2 param set`이 성공했는데 동작이 그대로: 값을 __init__에서 self.에 한 번 복사해 둠
+- `tf2_echo: command not found`: tf2_echo는 tf2_ros 패키지의 실행 파일 → `ros2 run tf2_ros tf2_echo A B`
+- tf2_echo 첫 줄 `Invalid frame ID ... frame does not exist`: 켜진 직후 아직 tf를 못 받아서 나오는 대기 메시지. 다음 줄부터 값이 나오면 무시
+- static_transform_publisher 값을 바꿨는데 tf2_echo가 예전 값: 예전 명령이 다른 터미널에 아직 켜져 있음. `ros2 node list`로 `/static_transform_publisher_...`를 찾아 전부 끄고 하나만 켠다
+- `tf2_echo base_link left_wheel`이 `Waiting for transform`에서 안 넘어감: 슬라이더 창(joint_state_publisher_gui)을 닫아서 /joint_states가 없음. 움직이는 joint는 각도를 받아야 tf가 올라간다. launch를 다시 켜고 슬라이더 창은 닫지 않는다
+- tf2_echo는 새 값인데 RViz 화살표가 그대로: RViz가 예전 tf를 그리고 있음. 왼쪽 아래 Reset, 안 되면 RViz를 껐다 켠다. 먼저 tf2_echo로 tf 문제인지 RViz 문제인지 나눈다
 - `ros2 topic info` 등이 아무것도 안 뜨고 멈춤: Ctrl+Z로 멈춘 프로그램들 사이에 ros2 daemon(안내 데스크)까지 얼어 있었음. 끌 때는 항상 Ctrl+C. 이미 Ctrl+Z 했으면 fg → Ctrl+C
 
 ## 다음 목표
