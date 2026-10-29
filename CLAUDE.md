@@ -176,7 +176,7 @@
     - 3-3 talker 두 개(하이/바이): listener는 같은 /greeting에서 둘 다 번갈아 받음. 이름이 같으면 `ros2 node list`에 /talker 두 번 + `share an exact name` 경고(param set 등에서 구분 불가) → `name='talker_hi'`, `name='talker_bye'`로 코드의 노드 이름을 덮어씀. name은 노드 이름만 바꾸고 토픽은 그대로
     - 실수: data_files 경로를 `('share/' + "step_pkg", '/launch', [...])`처럼 쉼표로 나눔(값이 두 개여야 함: 설치 경로 문자열, 파일 리스트), 수정 후 저장 안 함
     - launch는 노드가 무슨 통신(토픽/서비스)을 하는지 상관없이 켜기만 한다. talker/listener는 요청/응답이 아니라 토픽
-  - 4단계 tf(좌표계) 진행 중. 실습 전에 서술형 퀴즈로 개념부터(사용자 요청, 정답은 바로 안 알려 주고 어디서 어긋났는지만)
+  - 4단계 tf(좌표계) 완료. 실습 전에 서술형 퀴즈로 개념부터(사용자 요청, 정답은 바로 안 알려 주고 어디서 어긋났는지만)
     - 퀴즈 Q1~Q6: 거북이 (5.5, 5.5), 별 (7.5, 5.5) 고정, 거북이가 보는 방향만 바꿈
       - world 기준 별은 항상 (7.5, 5.5). 거북이 기준 별은 → (theta 0): (2, 0) 앞 / ↑ (1.57): (0, −2) 오른쪽 / ← (3.14): (−2, 0) 뒤
       - 거북이 축은 거북이와 같이 돈다. x+는 항상 코 방향, y+는 항상 왼쪽(x+에서 반시계 90°). 바뀌는 건 그 축이 창의 어느 쪽을 가리키느냐
@@ -207,7 +207,16 @@
       - 막힌 곳: rpy 숫자를 "그 손가락이 그대로/90°"로 읽음(0은 그 축 둘레로 안 돌렸다는 뜻), yaw를 "엄지를 꺾는 것"으로 생각(엄지는 고정), 바퀴 회전(pitch)과 몸통 전진(x 위치)을 섞음, + / − 부호 방향
       - Claude 실수: pitch 그림에서 🔵를 뒤쪽 위로 그림(앞쪽 위가 맞음). 손으로 확인하며 바로잡음
     - tf2_echo 출력에서 지금 볼 것은 Translation과 RPY (radian) 두 줄. Quaternion, Matrix는 같은 정보의 다른 형식(코드에서는 lookup_transform 등이 계산)
-    - 다음: 5단계 URDF + RViz(tf로 origin을 계산하고 tf2_echo/RViz로 확인하면서)
+  - 5단계 URDF + RViz 진행 중 (g04_camera.urdf로, tf2_echo/RViz로 확인하면서)
+    - 5-1 frame 트리: 종이에 먼저 그림(base_link 아래 right_wheel·left_wheel continuous, caster·camera_link fixed, 맞힘) → `ros2 run tf2_ros view_frames`로 frames_*.pdf 확인. link 하나 = frame 하나, 화살표 = joint. fixed는 /tf_static이라 Average rate 10000(한 번만 올린 값), continuous는 실제 주기(약 10Hz)
+    - 5-2 visual origin vs joint origin: 바퀴 link의 visual `rpy="1.57 0 0"`은 원통 모양만 세운다. RViz에서 left_wheel frame의 🔵는 여전히 위(tf에는 없음). frame을 옮기고 돌리는 건 joint origin
+    - RPY 부호 연습 (rpy="±1.57 0 0" 등을 손으로)
+      - 직접 찾은 방법: ① 0이 아닌 자리 → 그 손가락 고정 ② 그 손가락 끝을 내 눈 쪽으로 ③ +는 반시계, −는 시계로 돌림 ④ 손 모양 그대로 원래 방향(검지 앞)으로 되돌려서 읽기
+      - ④를 빼먹기 쉽다: 손을 반 바퀴 되돌리면 위아래는 그대로, 좌우는 바뀐다. 예) roll −1.57: ③에서 엄지는 내 오른쪽 → ④ 후 엄지 왼쪽, 중지 아래
+      - 고정 손가락 찾기는 한 번도 안 틀림. 막힌 곳은 부호 방향(특히 roll, 검지가 나와 반대쪽을 보고 있어서). 지치면 같은 문제를 계속 틀린다 → 쉬고 다시
+      - 실제 작업에서는 값을 넣고 RViz에서 보고, 틀리면 부호를 뒤집는다
+      - 다음 시작 때 roll −1.57 문제를 첫 문제로 다시
+    - 다음: 5-3 g04 카메라 joint에 pitch를 넣어 아래로 숙이기(부호는 RViz로 확인) → 5-4 부품 하나 직접 추가 → 6단계 Gazebo(숙인 카메라 + 빨간 상자 + 피드백 고리, g04-4 cx → /cmd_vel)
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
@@ -308,6 +317,9 @@
   - tf2_echo 출력: Translation, Rotation(Quaternion xyzw는 컴퓨터용, [0, 0, 0, 1]이면 회전 없음 / RPY는 사람이 읽는 각도, URDF rpy와 같은 형식), Matrix(맨 오른쪽 열 위 세 숫자가 Translation)
   - RPY = roll(🔴 x축 둘레), pitch(🟢 y축 둘레), yaw(🔵 z축 둘레) 순서, 단위 rad. 위치가 아니라 그 축을 꽂고 돈 각도. 꽂은 축은 그대로, 나머지 둘이 직각을 유지한 채 같이 돈다
     - + 방향: roll은 위(🔵)가 오른쪽으로 기울고, pitch는 앞(🔴)이 아래로 숙여지고, yaw는 앞(🔴)이 왼쪽으로 돈다
+    - +90° 결과(오른손: 검지 🔴 앞, 중지 🟢 왼쪽, 엄지 🔵 위에서 시작): yaw +는 검지 왼쪽·중지 뒤, pitch +는 검지 아래·엄지 앞, roll +는 엄지 오른쪽·중지 위. −는 전부 반대
+    - 부호 판정: 고정 손가락 끝을 내 눈 쪽으로 돌리고 +는 반시계, −는 시계. 다 돌린 뒤 손을 원래 방향으로 되돌려서 읽는다(좌우가 바뀜)
+    - visual 안의 origin rpy는 모양만 돌린다(tf에 없음). joint origin rpy는 frame을 돌린다(tf)
     - 바닥 로봇 몸통은 주로 yaw만(turtlesim theta). pitch는 경사로·바퀴·드론 숙이기·카메라 숙여 달기, roll은 옆으로 기울기·u06 원통 세우기
   - URDF joint = parent → child tf. robot_state_publisher가 URDF(fixed는 /tf_static 한 번)와 /joint_states(움직이는 joint는 /tf 계속)로 올린다. 직접 연결 안 된 frame 사이도 트리를 따라 이어 붙여 계산
 - colcon: 여러 패키지를 모아서 빌드하는 도구. 반드시 ~/ros2_ws에서 실행 (src 안에서 하면 src/build 등이 잘못 생김)
