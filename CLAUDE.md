@@ -244,7 +244,23 @@
       - 디버깅 순서(Claude가 확인): `ros2 topic echo /cmd_vel`(노드는 보냄) → `topic info -v`(Subscription 0) → bridge 명령 확인
     - Ctrl+C로 노드를 꺼도 로봇은 마지막 명령을 계속 따른다 → `ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{}"`
     - 실행 순서: T1 `gz sim -r ~/ros2_ws/gazebo_practice/g04_world.sdf` → T2 create(g04_camera_tilt.urdf, red_box.sdf) → T3 이미지 bridge `[` → T4 cmd_vel bridge `]` → T5 노드. teleop과 내 노드를 같이 켜면 /cmd_vel에서 싸운다
-  - 다음: 워밍업으로 빈 화면에서 부품 하나 혼자 추가(5-4를 틀 없이, 예: 몸통 뒤쪽 윗면에 작은 상자) → g04_follow 다듬기(상자가 정면 밖에 있을 때 찾기, HSV) 또는 launch 파일로 T1~T5 한 번에 → LLM 프로젝트 설계
+  - 다음 계획(보류): g04_follow 다듬기 또는 launch로 T1~T5 한 번에 → 액션 server("빨강으로 가") → LLM 연결
+- 재현 과제 (review/, src/review_pkg, src/review2_pkg). "시킨 대로만 했지 이해는 못 했다"는 느낌 → 처음부터 다시 대신 결과물을 빈 화면에서 다시 만들기. 외우지 않고 예전 코드·CLAUDE.md·-h를 보며 쓰되, 줄마다 왜 있는지 주석. 못 쓰는 줄 = 노션에 정리할 곳(현업도 보면서 쓴다. 머리에 둘 것은 구조, 찾는 곳, 디버깅 순서)
+  - 과제 목록: 1 talker/listener → 2 패키지 + launch → 3 tf 예상 → 4 URDF 부품 추가 → 5 Gazebo + bridge 두 개 → 6 빈 파일에서 follow 노드
+  - 1 r01_talker / r02_listener (`/chat`, std_msgs/msg/String, `안녕 N`) 완료
+    - r01 실수: `msg.data`에 값을 안 넣어 echo에 빈 data(로그는 터미널 출력일 뿐 메시지와 무관), `hello = msg.data`(방향 반대, `=`는 오른쪽 값을 왼쪽에), `info(msg)`(객체), `publish(msg.data)`(str)
+    - 주석 다듬기: `String()`은 "타입 명시"가 아니라 객체를 새로 만드는 것(타입 = 설계도, 객체 = 만든 것). create_timer/create_subscription은 등록, 부르는 건 spin
+    - 실험: `self.count = 0`을 콜백으로 옮기면 계속 `안녕 0`(콜백은 매번 처음부터)
+    - review/self_test.py: `id(self) == id(b)` → self는 `클래스()`로 만든 그 객체. self 없는 지역 변수는 함수가 끝나면 사라지고, `self.`는 객체 안에 남는다
+    - r02는 한 번에 맞힘. 콜백 매개변수 차이: 타이머는 건네줄 물건이 없어 `(self)`, 구독은 받은 글이 있어 `(self, msg)`
+    - 실행 순서: `Talker()` → `__init__` 한 번(등록) → `spin(talker)`에서 멈춰 기다리다 콜백 반복 → Ctrl+C 후 정리. spin은 `__init__`을 다시 실행하지 않는다(count가 0으로 안 돌아가는 게 증거). spin에 노드를 넘기는 이유는 그 노드 안의 타이머/구독 목록을 보려고. 콜백은 괄호 없이 함수 자체를 넘겨 저장해 둔 것(`talker.timers`의 `t.callback`으로 확인 가능). spin = 이벤트 루프
+  - 2 review_pkg(talker, listener, launch/chat_launch.py) 완료, 2-2 review2_pkg로 한 번 더(chit_chat_launch.py)
+    - 실수: `--build-type` 빠뜨림(기본값 ament_cmake → CMakeLists.txt, include, src가 생김. 지우고 다시), `ros2 launch review/review_pkg`(첫 칸은 경로가 아니라 패키지 이름), data_files에 step_pkg launch 이름 그대로, console_scripts 비움(`libexec directory .../lib/패키지 does not exist` → 실행 파일 없음, 에러 보고 스스로 찾음)
+    - launch 폴더와 파일은 직접 만든다(pkg create가 안 만듦). setup.py와 같은 층. data_files 이름과 실제 파일 이름이 한 글자까지 같아야
+    - data_files를 `share/패키지`로만 해도 ros2 launch가 share 아래를 뒤져 찾지만, 관례는 `share/패키지/launch`. 경로를 바꾸면 예전 복사본이 install에 남아서 `rm -rf build/패키지 install/패키지` 후 다시 빌드(이때 AMENT_PREFIX_PATH 경로가 없다는 WARNING은 무시)
+    - source: install/setup.bash는 패키지 위치를 환경 변수(AMENT_PREFIX_PATH 등)에 적는 스크립트, source는 그걸 지금 터미널 안에서 실행. 새 터미널은 ~/.bashrc가 해 줌. 터미널을 연 뒤에 새 패키지를 빌드했을 때만 필요(`echo $AMENT_PREFIX_PATH | tr ':' '\n'`으로 확인)
+    - colcon build는 워크스페이스 맨 위(~/ros2_ws)에서
+  - 다음: 3 tf 예상
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
