@@ -260,7 +260,13 @@
     - data_files를 `share/패키지`로만 해도 ros2 launch가 share 아래를 뒤져 찾지만, 관례는 `share/패키지/launch`. 경로를 바꾸면 예전 복사본이 install에 남아서 `rm -rf build/패키지 install/패키지` 후 다시 빌드(이때 AMENT_PREFIX_PATH 경로가 없다는 WARNING은 무시)
     - source: install/setup.bash는 패키지 위치를 환경 변수(AMENT_PREFIX_PATH 등)에 적는 스크립트, source는 그걸 지금 터미널 안에서 실행. 새 터미널은 ~/.bashrc가 해 줌. 터미널을 연 뒤에 새 패키지를 빌드했을 때만 필요(`echo $AMENT_PREFIX_PATH | tr ':' '\n'`으로 확인)
     - colcon build는 워크스페이스 맨 위(~/ros2_ws)에서
-  - 다음: 3 tf 예상
+  - 3 tf 예상 (`tf2_echo robot world`를 종이로 예상 → 실행) 완료. 그림: review/tf_world_robot.png, tf_robot_ruler.png, tf_quiz2.png
+    - 푸는 순서: ① yaw로 코(🔴) 방향 ② 왼쪽(🟢) = 코에서 반시계 90°(yaw 부호와 상관없음) ③ robot에서 출발해 world 원점까지 화면 화살표 ④ 화살표를 앞/뒤/왼쪽/오른쪽 단어로 ⑤ 앞 x+, 뒤 x−, 왼쪽 y+, 오른쪽 y−. RPY는 명령 yaw의 부호만 뒤집기
+    - 왜 world 숫자를 그대로 못 쓰나: yaw 때문에 두 frame의 축이 화면에서 다른 쪽을 가리킨다(yaw 1.57이면 robot x가 ↑). 같은 "← 2칸"이 world에서는 x, robot에서는 y. robot 눈금으로 다시 읽어야 한다
+    - 문제: (2, 1) yaw 1.57 → [-1, 2, 0] / (1, 2) yaw −1.57 → [2, -1, 0] / (-1, 2) yaw 1.57 → [-2, -1, 0] / (-2, 1) yaw −1.57 → [1, 2, 0] / (1, -3) yaw −1.57 → [-3, -1, 0] / (-1, -2) yaw −1.57 → [-2, 1, 0] / (-3, -1) yaw 1.57 → [1, -3, 0]. 마지막 두 문제는 힌트 없이 맞힘, 실행 값 [1.002, -2.999, 0], RPY -1.570
+    - 막힌 곳: ④를 건너뛰고 world 숫자를 그대로 가져옴(→ = x), 왼쪽 = y+ 부호, 화살표를 원점 → robot으로 그음(x, y 둘 다 부호 반대), 가는 방향을 "앞"으로 읽음(앞은 코 기준으로 고정), 지칠 때 명령 yaw를 부호 그대로 옮겨 적음
+    - yaw −1.57의 시계 방향(코 방향 정하기)과 왼쪽 찾는 반시계 90°는 다른 회전
+  - 다음: 4 URDF 부품 추가
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
