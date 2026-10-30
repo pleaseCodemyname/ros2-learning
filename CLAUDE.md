@@ -207,7 +207,7 @@
       - 막힌 곳: rpy 숫자를 "그 손가락이 그대로/90°"로 읽음(0은 그 축 둘레로 안 돌렸다는 뜻), yaw를 "엄지를 꺾는 것"으로 생각(엄지는 고정), 바퀴 회전(pitch)과 몸통 전진(x 위치)을 섞음, + / − 부호 방향
       - Claude 실수: pitch 그림에서 🔵를 뒤쪽 위로 그림(앞쪽 위가 맞음). 손으로 확인하며 바로잡음
     - tf2_echo 출력에서 지금 볼 것은 Translation과 RPY (radian) 두 줄. Quaternion, Matrix는 같은 정보의 다른 형식(코드에서는 lookup_transform 등이 계산)
-  - 5단계 URDF + RViz 진행 중 (g04_camera.urdf로, tf2_echo/RViz로 확인하면서)
+  - 5단계 URDF + RViz (g04_camera.urdf로, tf2_echo/RViz로 확인하면서)
     - 5-1 frame 트리: 종이에 먼저 그림(base_link 아래 right_wheel·left_wheel continuous, caster·camera_link fixed, 맞힘) → `ros2 run tf2_ros view_frames`로 frames_*.pdf 확인. link 하나 = frame 하나, 화살표 = joint. fixed는 /tf_static이라 Average rate 10000(한 번만 올린 값), continuous는 실제 주기(약 10Hz)
     - 5-2 visual origin vs joint origin: 바퀴 link의 visual `rpy="1.57 0 0"`은 원통 모양만 세운다. RViz에서 left_wheel frame의 🔵는 여전히 위(tf에는 없음). frame을 옮기고 돌리는 건 joint origin
     - RPY 부호 연습 (rpy="±1.57 0 0" 등을 손으로)
@@ -215,8 +215,19 @@
       - ④를 빼먹기 쉽다: 손을 반 바퀴 되돌리면 위아래는 그대로, 좌우는 바뀐다. 예) roll −1.57: ③에서 엄지는 내 오른쪽 → ④ 후 엄지 왼쪽, 중지 아래
       - 고정 손가락 찾기는 한 번도 안 틀림. 막힌 곳은 부호 방향(특히 roll, 검지가 나와 반대쪽을 보고 있어서). 지치면 같은 문제를 계속 틀린다 → 쉬고 다시
       - 실제 작업에서는 값을 넣고 RViz에서 보고, 틀리면 부호를 뒤집는다
-      - 다음 시작 때 roll −1.57 문제를 첫 문제로 다시
-    - 다음: 5-3 g04 카메라 joint에 pitch를 넣어 아래로 숙이기(부호는 RViz로 확인) → 5-4 부품 하나 직접 추가 → 6단계 Gazebo(숙인 카메라 + 빨간 상자 + 피드백 고리, g04-4 cx → /cmd_vel)
+      - 다음 날 roll −1.57을 첫 문제로 다시 풀어서 한 번에 맞힘
+      - roll만의 지름길: 손을 돌리지 않고 평소대로 보면 roll −는 엄지가 왼쪽, +는 오른쪽으로 기울어짐. pitch/yaw에 "−는 왼쪽"을 그대로 쓰면 틀림(yaw −는 검지 오른쪽) → 헷갈리면 손가락 끝을 내 눈 쪽으로
+    - 5-3 카메라 숙이기 (g04_camera_tilt.urdf, g04를 복사): `base_to_camera`의 origin에 `rpy="0 0.3 0"`
+      - 손으로 예상: 고정은 중지(pitch, 두 번째 자리), 중지 끝을 내 눈 쪽으로 하면(로봇 왼쪽에서 보기) 검지가 내 왼쪽 → 아래로 숙이면 반시계 → +. 처음엔 "시계, −"(중지 끝이 나와 반대쪽인 상태로 봄)
+      - joint rpy는 frame을 돌려서 카메라 상자도 같이 숙여진다(5-2 visual rpy와 반대). Gazebo 카메라 센서는 이 frame의 🔴 방향을 찍는다
+      - `tf2_echo base_link camera_link` = [0.175, 0, 0.075], RPY [0, 0.3, 0](예상 맞힘). base_link는 root라 origin이 없고 기준 자체(0, 0)
+      - 0.78(45°)은 카메라 높이 약 0.175m에서 바로 앞 바닥만 보여서 0.3(약 17°)으로
+    - 5-4 부품 직접 추가: 몸통 윗면 가운데에 lidar_link(cylinder radius 0.05 length 0.04, visual/collision/inertial) + fixed joint base_to_lidar, origin `0 0 0.07`(윗면 0.05 + 반 길이 0.02)
+      - check_urdf로 child 5개 확인 → RViz에서 윗면에 딱 섬 → `tf2_echo base_link lidar_link` [0, 0, 0.07], RPY [0, 0, 0](rpy 안 적으면 회전 0, 예상 맞힘)
+      - 실수: 윗면을 0.5로(0.1의 절반 자릿수), 속성 사이 쉼표(`radius="0.05", length=`), `type"fixed"`(= 빠짐), Translation 값을 RPY에도 넣음
+      - 틀(link/joint 빈칸)은 Claude가 줬고 계산·부호·채우기는 직접. 사용자가 "시킨 대로만 했다"고 느낌 → 다음에 빈 화면에서 다른 부품을 혼자 붙이기로 확인
+  - 5단계 완료
+  - 다음: 워밍업으로 빈 화면에서 부품 하나 혼자 추가(예: 몸통 뒤쪽 윗면에 작은 상자, 위치 계산부터) → 6단계 Gazebo(g04_camera_tilt + 상자 놓기 + 영상 확인 → g04-4 빨간 상자 cx → /cmd_vel 피드백 고리)
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
