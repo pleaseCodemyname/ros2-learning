@@ -1,0 +1,169 @@
+<robot name="wheels">
+	<gazebo>
+		<plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+			<left_joint>base_to_left_wheel</left_joint>
+			<right_joint>base_to_right_wheel</right_joint>
+			<wheel_separation>0.36</wheel_separation>
+			<wheel_radius>0.1</wheel_radius>
+			<topic>cmd_vel</topic>
+		</plugin>
+	</gazebo>
+
+	<link name="base_link">
+		<visual>
+			<geometry>
+				<box size="0.4 0.3 0.1"/> <!--앞뒤 40cm, 좌우 30cm, 높이 10cm-->
+			</geometry>
+		</visual>
+			<collision>
+			<geometry>
+				<box size="0.4 0.3 0.1"/> <!--앞뒤 40cm, 좌우 30cm, 높이 10cm-->
+			</geometry>
+		</collision>
+		<inertial>
+			<mass value="1.0"/>
+			<inertia ixx="0.0083" ixy="0" ixz="0" iyy="0.0142" iyz="0" izz="0.0208"/>
+		</inertial>
+	</link>
+
+	<link name="right_wheel">
+		<visual>
+			<geometry>
+				<cylinder length="0.05" radius="0.1"/> 
+			</geometry>
+			<origin rpy="1.57 0 0"/>
+		</visual>
+		<collision>
+			<geometry>
+				<cylinder length="0.05" radius="0.1"/> 
+			</geometry>
+			<origin rpy="1.57 0 0"/>
+		</collision>
+		<inertial>
+			<mass value="0.2"/>
+			<inertia ixx="0.00054" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.00054"/>
+		</inertial>
+	</link>
+
+	<joint name="base_to_right_wheel" type="continuous">
+		<parent link="base_link"/>
+		<child link="right_wheel"/>
+		<origin xyz="0 -0.18 0"/>		
+		<axis xyz="0 1 0"/>
+	</joint>
+
+	<link name="left_wheel">
+		<visual>
+			<geometry>
+				<cylinder length="0.05" radius="0.1"/>
+			</geometry>
+			<origin rpy="1.57 0 0"/>
+		</visual>
+		<collision>
+			<geometry>
+				<cylinder length="0.05" radius="0.1"/>
+			</geometry>
+			<origin rpy="1.57 0 0"/>
+		</collision>
+		<inertial>
+			<mass value="0.2"/>
+			<inertia ixx="0.00054" ixy="0" ixz="0" iyy="0.001" iyz="0"  izz="0.00054"/>
+		</inertial>
+	</link>
+
+	<joint name="base_to_left_wheel" type="continuous">
+		<parent link="base_link"/>
+		<child link="left_wheel"/>
+		<origin xyz="0 0.18 0"/>
+		<axis xyz="0 1 0"/>
+	</joint>
+
+	<link name="caster">
+		<visual>
+			<geometry>
+				<sphere radius="0.05"/>
+			</geometry>
+		</visual>
+		<collision>
+			<geometry>
+				<sphere radius="0.05"/>
+			</geometry>
+		</collision>
+		<inertial>
+			<mass value="0.05"/>
+			<inertia ixx="0.00005" ixy="0" ixz="0" iyy="0.00005" iyz="0" izz="0.00005"/>
+		</inertial>
+	</link>
+
+	<joint name="base_to_caster" type="fixed">
+		<parent link="base_link"/>
+		<child link="caster"/>
+		<origin xyz="-0.15 0 -0.05"/>
+	</joint>
+
+	<link name="camera_link">
+		<visual>
+			<geometry>
+				<box size="0.05 0.05 0.05"/>
+			</geometry>
+		</visual>
+			<collision>
+			<geometry>
+				<box size="0.05 0.05 0.05"/>
+			</geometry>
+		</collision>
+		<inertial>
+			<mass value="0.05"/>
+			<inertia ixx="0.00002" ixy="0" ixz="0" iyy="0.00002" iyz="0" izz="0.00002"/>
+		</inertial>
+	</link>
+
+	<joint name="base_to_camera" type="fixed">
+		<parent link="base_link"/>
+		<child link="camera_link"/>
+		<origin xyz="0.175 0 0.075" rpy="0 0.3 0"/>
+	</joint>
+
+	<gazebo reference="camera_link">
+		<sensor name="camera" type="camera">
+			<always_on>true</always_on>
+			<update_rate>30</update_rate>
+			<topic>camera/image</topic>
+			<camera>
+				<horizontal_fov>1.047</horizontal_fov>
+				<image>
+					<width>320</width>
+					<height>240</height>
+				</image>
+				<clip>
+					<near>0.05</near>
+					<far>50</far>
+				</clip>
+			</camera>
+		</sensor>
+	</gazebo>
+
+	<link name="lidar_link">
+		<visual>
+			<geometry>
+				<cylinder radius="0.05" length="0.04"/>
+			</geometry>
+		</visual>
+		<collision>
+			<geometry>
+				<cylinder radius="0.05" length="0.04"/>
+			</geometry>
+		</collision>
+		<inertial>
+			<mass value="0.1"/>
+			<inertia ixx="0.000076" ixy="0" ixz="0" iyy="0.000076" iyz="0" izz="0.000125"/>
+		</inertial>
+	</link>
+
+	<joint name="base_to_lidar" type="fixed">
+		<parent link="base_link"/>
+		<child link="lidar_link"/>
+		<origin xyz="0 0 0.07"/>
+	</joint>
+
+</robot>
