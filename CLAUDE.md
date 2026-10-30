@@ -227,7 +227,24 @@
       - 실수: 윗면을 0.5로(0.1의 절반 자릿수), 속성 사이 쉼표(`radius="0.05", length=`), `type"fixed"`(= 빠짐), Translation 값을 RPY에도 넣음
       - 틀(link/joint 빈칸)은 Claude가 줬고 계산·부호·채우기는 직접. 사용자가 "시킨 대로만 했다"고 느낌 → 다음에 빈 화면에서 다른 부품을 혼자 붙이기로 확인
   - 5단계 완료
-  - 다음: 워밍업으로 빈 화면에서 부품 하나 혼자 추가(예: 몸통 뒤쪽 윗면에 작은 상자, 위치 계산부터) → 6단계 Gazebo(g04_camera_tilt + 상자 놓기 + 영상 확인 → g04-4 빨간 상자 cx → /cmd_vel 피드백 고리)
+  - 6단계 Gazebo (g04_camera_tilt.urdf + g04_world.sdf)
+    - 6-1 숙인 카메라 영상: 1초에 약 25장인데 회색 네모만 보임 → `ros2 topic hz /camera/image`로 영상이 오는지 먼저 나눔(OpenCV 창은 받은 사진이 없어도 회색). 화면 대부분이 바닥
+      - 예상 "지평선이 아래로" → 실제는 위로. 카메라가 아래를 보면 정면·먼 곳이 화면 위쪽으로 간다(상자가 화면 위쪽에 보여서 알게 됨)
+    - 6-2 피드백 고리: 툴바로 상자 놓고 Component Inspector Pose로 x 1.5 → 영상 위쪽에 보임. teleop j(왼쪽 회전) → 영상 속 상자는 오른쪽으로(예상 맞힘). d10(cam2image)과 달리 내가 움직이면 입력이 바뀐다
+    - 6-3 빨간 상자 따라가기
+      - red_box.sdf: `<static>true</static>`(inertial 불필요, 안 밀림), material ambient/diffuse `1 0 0 1`(RGBA, OpenCV BGR과 순서 다름), 0.3 상자. `create -file red_box.sdf -name red_box -x 1.0 -y 0.4 -z 0.15`(z = 반 변)
+      - 1.5m에서는 계산상 보여야 하는데 안 보임 → teleop으로 다가가니 보임. 다음엔 1.0 정도로 가깝게
+      - g04_follow.py (d10 복사, `python3 gazebo_practice/g04_follow.py`): 설계 표 Sub /camera/image(sensor_msgs/msg/Image) + Pub /cmd_vel(geometry_msgs/msg/Twist) → 토픽 두 줄만 바꿈
+      - 빨강: lower [0, 0, 100], upper [80, 80, 255]. 한 값(0, 0, 255)만 쓰면 조명·그림자로 숫자가 조금씩 달라서 거의 다 탈락
+      - 안 보일 때: 빨간 칸이 없으면 `xs`는 `[]`, `xs.mean()`은 `nan`(python3로 직접 확인) → `int(cx)`에서 에러. `if len(xs) == 0:` 왼쪽 0.3 회전 → publish → return
+      - 속도는 거북이용 1.0 → 회전 ±0.3, 직진 0.2(사진마다 고쳐 가려면 천천히)
+      - 멈추기: 거리는 모르지만 가까울수록 빨간 칸이 많다. 로그에 `len(xs)`를 찍어 재 봄: 800 → 15617(직진 시작) → 49464(약 20cm 앞) → 76800(화면 전체 = 닿음, 계속 밀며 cx 140 경계에서 떨림). 기준 49000 → `if len(xs) > 49000:` 멈춤 publish → return(cx if문 앞). 같은 값(49869)이 반복되면 서 있다는 증거
+      - 피드백 고리 완성: 없으면 돌며 찾기 → cx로 돌기/직진 → 크면 멈춤 → 움직임이 다시 사진을 바꿈. "빨간 컵으로 가"의 뼈대. 마스크 칸만 YOLO/글로 찾는 모델로 바꾸면 된다
+      - 실수: cmd_vel bridge에 `}`(→ `]`, 에러 없이 Subscription count 0), 토픽 `/cmd-vel`, `angular.z = 30`(rad/s라 1초에 약 다섯 바퀴), 마스크의 흰 칸(조건 통과)과 사진의 흰색 혼동, 멈춤을 if/else로 넣어 아래 cx if문이 0.2로 덮어씀
+      - 디버깅 순서(Claude가 확인): `ros2 topic echo /cmd_vel`(노드는 보냄) → `topic info -v`(Subscription 0) → bridge 명령 확인
+    - Ctrl+C로 노드를 꺼도 로봇은 마지막 명령을 계속 따른다 → `ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{}"`
+    - 실행 순서: T1 `gz sim -r ~/ros2_ws/gazebo_practice/g04_world.sdf` → T2 create(g04_camera_tilt.urdf, red_box.sdf) → T3 이미지 bridge `[` → T4 cmd_vel bridge `]` → T5 노드. teleop과 내 노드를 같이 켜면 /cmd_vel에서 싸운다
+  - 다음: 워밍업으로 빈 화면에서 부품 하나 혼자 추가(5-4를 틀 없이, 예: 몸통 뒤쪽 윗면에 작은 상자) → g04_follow 다듬기(상자가 정면 밖에 있을 때 찾기, HSV) 또는 launch 파일로 T1~T5 한 번에 → LLM 프로젝트 설계
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
@@ -410,6 +427,7 @@
 - gz 명령: `gz topic -l`(목록), `gz topic -e -t 토픽 -n 1`(한 번 읽기, ROS의 echo --once), `gz topic -t 토픽 -m 인터페이스 -p "내용"`(발행), `gz topic -i -t 토픽`(구독자/발행자)
 - 시뮬레이션이 일시정지면 메시지는 전달돼도 물리 계산이 안 돌아서 아무것도 안 움직이고 odometry도 안 나온다
 - Gazebo는 world 파일에 적힌 시스템(plugin)만 실행한다. 카메라 같은 센서는 world에 `gz-sim-sensors-system`이 있어야 사진을 만든다(empty.sdf에는 없음, 없으면 에러 없이 토픽이 안 생김)
+- 색 찾기 현업: 조명이 일정한 곳에서만 색 범위(보통 BGR 대신 HSV, 그림자에 덜 흔들림). 대부분은 YOLO 같은 물체 인식(사각형 가운데 = cx), "빨간 컵"처럼 글로 찾는 모델(Grounding DINO, OWL-ViT, 비전 LLM). 노드 구조(사진 → cx → 판단 → /cmd_vel)는 그대로
 - 카메라 센서: `<gazebo reference="link 이름">` 안에 `<sensor type="camera">`. 센서는 link 가운데에 있으니 clip near를 자기 상자 반 변보다 크게. 사진은 Gazebo 토픽이라 bridge(`[`)로 sensor_msgs/msg/Image로 가져온다
 
 ### Python
