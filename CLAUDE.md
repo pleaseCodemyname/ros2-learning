@@ -273,7 +273,26 @@
     - 실수: xs를 값이 0인 칸 번호(1, 2)로 예상
     - 사진 크기는 URDF 센서 설정 width 320, height 240. 가운데 160, 직진 구간 140~180은 양쪽 20칸, 76800 = 320 × 240. width를 바꾸면 기준값도 같이 바꾼다. `frame.shape`는 (240, 320, 3)
     - cx 100이면 상자는 왼쪽 → 왼쪽으로 회전. 상자는 world에 고정, 카메라가 돌아서 화면 속 상자가 가운데(오른쪽)로 오고 cx가 커진다. cx는 저장값이 아니라 새 사진마다 콜백이 다시 계산한다
-  - 다음: 4 URDF 부품 추가
+  - 4 URDF 부품 추가 (review/r04_battery.urdf, g04_camera_tilt 복사) 완료: 몸통 윗면 맨 뒤에 battery_link(상자 0.1 0.1 0.04) + fixed joint base_to_battery, origin `-0.15 0 0.07`
+    - 틀 없이 lidar_link를 보고 직접 씀. check_urdf 한 번에 통과(child 6개), `tf2_echo base_link battery_link` [-0.15, 0, 0.07], RPY [0, 0, 0] 예상과 같음
+    - 위치 계산: 부품 위치는 부품 가운데, 기준은 몸통 가운데 0. 몸통 끝 = 길이의 절반. 안쪽에 맞추면 끝에서 안쪽으로 부품 절반, 위에 올리면 끝에서 바깥으로 부품 절반. x = -0.2 + 0.05, z = 0.05 + 0.02. 소수가 헷갈리면 cm 정수로(-20 + 5 = -15)
+    - 처음엔 세 숫자를 한 번에 추측(0.3 0.2 -0.06) → 한 축씩, 정수로 바꾸니 풀림. 실수: -0.2 + 0.05 = -1.05, 0.05 + 0.02 = 0.06, 부품 끝(6)과 가운데(8) 혼동, 예시 숫자를 그대로 씀(높이 6인데 11)
+    - z를 0.05로 바꾸면 아래 절반이 몸통에 묻힌다(예상 맞힘, RViz 확인). 왜 알아야 하나: joint origin이 곧 tf라서 틀리면 "카메라가 본 컵" 계산도 틀린다. 현업은 CAD/캘리브레이션에서 값을 가져오고 암산은 필요 없음
+    - 태그 정리: visual 보이는 모양, collision 부딪히는 모양, geometry 그 모양과 크기(box/cylinder/sphere), inertial 무게 정보(mass, inertia), joint 연결, origin 위치, `<gazebo>` Gazebo 전용 설정. RViz는 visual만, Gazebo는 전부 본다
+    - collision은 시작할 때만이 아니라 시뮬레이션 내내 계산. 부품 하나만 없으면 로봇은 안 떨어지고 그 부품만 통과(바닥을 뚫는 건 전체에 없을 때). ixx 등은 축별로 돌리기 어려운 정도, 지금은 복사해서 쓰면 됨(개념은 나중에)
+  - 5 Gazebo + bridge 두 개 완료: T1 world → T2 r04_battery.urdf + red_box → T3 사진 `[` → T4 속도 `]` → T5 g04_follow
+    - 흐름: 카메라 → 사진(Gazebo → ROS) → 노드 → 속도 명령(ROS → Gazebo) → 바퀴 → 새 사진. 사진이 돌아가는 게 아니라 노드가 새 데이터(속도)를 만든다. 그래서 bridge가 두 개
+    - 경로별 확인: `ros2 topic hz /camera/image` 약 24Hz(hz = 1초에 몇 번), `ros2 topic info /cmd_vel -v` Subscription 1 ros_gz_bridge, `topic pub --once` angular.z 0.3 → 반시계 제자리 회전(linear 안 적어서 전진 없음)
+    - 예상 틀림: `--once`면 곧 멈출 것 → 계속 돎. 플러그인은 마지막 명령을 계속 따른다. 멈춤은 `"{}"` 또는 `"{angular: {z: 0.0}}"`
+    - 로그: cx 0.5, 칸 26(왼쪽 끝에 들어옴) → cx 53 → 134 → 141(직진 시작), 칸 15810 → 43162 → 54630(49000 넘어 정지), 같은 값 반복 = 서 있음. 사진 번호 1초에 약 26장
+    - 실수: bridge 인자에 `[` 앞뒤 띄어쓰기(셸이 잘라서 사용법만 출력), `/cmd/vel`(에러 없이 Creating 성공 → 출력의 토픽 이름까지 확인), `]`/`[` 혼동
+    - 두 bridge 구분: ros_gz_bridge는 Gazebo ↔ ROS(별도 터미널), self.bridge(CvBridge)는 ROS 메시지 ↔ numpy 사진(코드 한 줄)
+    - 있는 g04_follow를 실행한 것이라 스스로는 "100% 이해는 아님" → 과제 6에서 직접 쓰기
+  - nonzero 다시 잡기 (review/m02_nonzero.py): nonzero는 표를 왼쪽 위부터 한 줄씩 훑어 255인 칸마다 줄 번호(ys), 칸 번호(xs)를 하나씩 적는다
+    - 예: 줄0 `255 255 0 0`, 줄1 전부 0, 줄2 `0 255 255 255` → ys `[0, 0, 2, 2, 2]`, xs `[0, 1, 1, 2, 3]`, cx 7 ÷ 5 = 1.4. ys와 xs는 같은 순서로 짝, 개수도 같음. 255 없는 줄은 안 적음
+    - 평균은 표 크기가 아니라 255인 칸 수로 나눈다. follow는 좌우만 판단해서 xs만 쓰고, ys는 위아래가 필요할 때
+    - 실수: 3으로 왜 나누는지(칸 4, 줄 2와 혼동), ys에 줄별 개수를 적음(`[2, 0, 3]`), 8 ÷ 3을 2.2로
+  - 다음: 6 빈 파일에서 follow 노드 (설계 표 Sub/Pub부터)
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
@@ -443,7 +462,7 @@
 
 ### Gazebo
 - RViz는 보여 주기만(정비소 리프트), Gazebo는 물리(중력, 바닥, 마찰)가 있는 시뮬레이터. world 파일은 SDF, 내 로봇 URDF는 넣을 때 SDF로 바뀐다
-- Gazebo용 link는 칸 세 개: visual(어떻게 생겼나) / collision(어디에 부딪히나, 히트박스, 보통 visual과 같은 모양) / inertial(얼마나 무겁나: mass + inertia 6개 ixx ixy ixz iyy iyz izz, 하나라도 빠지면 파싱 에러). inertia 숫자는 모양별 공식으로 계산
+- Gazebo용 link는 칸 세 개: visual(어떻게 생겼나) / collision(어디에 부딪히나, 시뮬레이션 내내 계산, 보통 visual과 같은 모양) / inertial(얼마나 무겁나: mass + inertia 6개 ixx ixy ixz iyy iyz izz, 하나라도 빠지면 파싱 에러). inertia 숫자는 모양별 공식으로 계산
 - 접점이 한 줄(바퀴 2개)이면 앞뒤로 넘어진다. 캐스터(아무 방향으로 구르는 보조 바퀴, 힘은 안 주고 받치기만)로 접점 3개 = 삼각대. 로봇 청소기, TurtleBot도 같다
 - 캐스터 joint는 fixed. 구르는 건 공 표면과 바닥이 알아서 한다
 - `check_urdf 파일.urdf`: Gazebo 켜기 전에 설계도 문법 검사. 마지막에 child 목록이 다 나오면 통과
