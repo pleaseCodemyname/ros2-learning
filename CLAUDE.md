@@ -292,7 +292,39 @@
     - 예: 줄0 `255 255 0 0`, 줄1 전부 0, 줄2 `0 255 255 255` → ys `[0, 0, 2, 2, 2]`, xs `[0, 1, 1, 2, 3]`, cx 7 ÷ 5 = 1.4. ys와 xs는 같은 순서로 짝, 개수도 같음. 255 없는 줄은 안 적음
     - 평균은 표 크기가 아니라 255인 칸 수로 나눈다. follow는 좌우만 판단해서 xs만 쓰고, ys는 위아래가 필요할 때
     - 실수: 3으로 왜 나누는지(칸 4, 줄 2와 혼동), ys에 줄별 개수를 적음(`[2, 0, 3]`), 8 ÷ 3을 2.2로
-  - 다음: 6 빈 파일에서 follow 노드 (설계 표 Sub/Pub부터)
+  - 6 빈 파일에서 follow 노드 (review/r06_follow.py) 완료: 로봇 몸통 앞면이 상자 약 26cm 앞(0.59 vs 0.85)에서 멈춤, 빨간칸 54677 반복
+    - 단계: 설계 표(Sub /camera/image sensor_msgs/msg/Image, Pub /cmd_vel geometry_msgs/msg/Twist, 타이머 없음 = listener처럼 사진이 올 때마다 콜백) → 틀 + 가로/세로 로그(320, 240 예상 맞힘, URDF width/height에서 찾음) → frame/mask/ys,xs + 빨간칸 로그(상자 없을 때 0 예상 맞힘, 상자 넣으니 13448) → cx(159.5 예상 맞힘 = 0~319의 가운데) → cx로 if/elif/else + publish 한 번 → 멈춤
+    - 평균을 내는 이유: xs는 빨간 칸 수만큼(1만 개 넘게) 번호가 있어서 if로 비교 못 함 → 숫자 하나로 줄인다. nonzero는 위치 찾기, mean은 평균만, 방향 판단은 if
+    - 멈춤 블록 `if len(xs) > 49000: publish(cmd) → return`은 cx 판단 위에. else에 넣으면 상자가 정면(cx 159)일 때 elif의 0.2가 실행되어 안 멈춤(else = 오른쪽). ⓑ(cx if 아래)에 넣으면 이미 linear.x 0.2가 채워진 뒤. cmd = Twist()를 콜백 맨 위에 한 번 두면 멈춤은 채울 칸이 없음
+    - 기준값은 정답이 없고 로그로 정한다: 13448 → 21964 → 48715 → 76800 → 0. 76800은 이미 닿기 직전. 1초 사이에 크게 뛰어 49000을 넘은 54677에서 멈춤
+    - 멈춤 없이 돌렸을 때: 76800 → 0. 카메라가 상자 면에서 약 3cm인데 near 0.05(5cm보다 가까운 건 안 그림)라 빨간 면이 사라짐. 그러자 0개 블록이 회전 명령을 보내지만 몸통이 상자에 닿아 못 돎
+    - 실수: 구독 콜백 이름 image_callback ≠ 함수 follow_callback, rclpy.shutdown(→ try_shutdown), cx = xs.mean()을 0개 검사 위에(빈 목록이면 nan), `cmd.lenear.x = {}`(오타 + YAML 문법), `self.publisher__`(문법 검사 통과, 멈추는 순간에만 AttributeError → 노드가 죽고 로봇은 마지막 전진 명령으로 충돌), 예전 코드 주석 그대로(흰 부분, b:50), 마스크 255를 흰색 물체로 생각
+    - 실행 실수와 찾은 방법: `ros2 run gz sim`(gz는 ROS 패키지가 아님, `gz sim` 바로), `parameter`(→ parameter_bridge, `ros2 pkg executables ros_gz_bridge`), create에 위치 빠짐(상자가 원점에서 로봇과 겹침, `gz model -m 이름 -p`로 Pose 확인, Remove 후 다시), 노드를 안 끈 채 수동 후진 명령(노드가 덮어씀), 저장 안 함, T3/T4 빠짐
+    - 안 움직일 때 순서: 노드 로그가 찍히나(안 찍히면 사진 쪽 T3, /camera/image Publisher 0) → 찍히는데 안 움직이나(속도 쪽 T4, /cmd_vel Subscription 0) → 파일 저장, 실행 중인 노드가 새 코드인지
+    - Gazebo GUI가 Segmentation fault(ogre2 렌더링, X server 연결 끊김)로 죽음 → 내 코드와 무관. 다시 켜면 됨, 반복되면 PowerShell에서 `wsl --shutdown`
+    - 사용자 판단: Claude가 단계를 쪼개 준 실습이라 혼자 처음부터 다시 해야 함
+  - 다음: 혼자 반복 (review/r06_follow_2.py 등 새 파일, 예전 파일은 열지 않기)
+    - 막히면 CLAUDE.md → `ros2 topic list -t` / `interface show` / `-h` → 예전 파일(마지막) 순서로 찾고, 찾아본 곳을 파일 맨 위에 `# 막힘:`으로 적는다(노션 정리 목록). 반복할수록 목록이 줄면 늘고 있는 것
+    - 순서표: 1 설계(Sub/Pub/타이머) → 2 틀(import, class, __init__, 콜백, main) → 3 msg → frame → mask → ys, xs → 4 0개면 회전, 많으면 멈춤(둘 다 publish → return) → 5 cx → if/elif/else → publish → 6 실행 T1 → T2(로봇, 상자) → T3 → T4 → 노드 → 7 안 되면 로그 → topic info -v → 저장
+    - 끝 기준: 예전 파일을 안 열고 로봇이 멈추면
+    - 1회차(review/r06_follow_2.py): 설계 주석을 자기 말로 쓰고 구독·발행까지 씀. 남은 문제 `super().__init(`, `'/camera/Image'`(대문자, 조용히 안 옴), 구독 큐 깊이 10 빠짐, 빈 콜백 본문. 완성본은 r06_follow.py(연습 파일과 이름 헷갈려 한 번 바꿔 씀, 잃은 것 없음)
+  - follow 코드 질문 정리 (막힌 곳: ROS보다 파이썬 실행 흐름)
+    - `xs`는 마스크 255(범위 통과) 칸의 칸 번호(값 255가 아니라 위치), 모든 줄에서 모음. `len(xs)` = 얼마나 많나(거리), `cx = xs.mean()` = 빨간 덩어리의 가로 가운데(0~319, 어디 있나). 두 숫자는 다른 질문
+    - ys는 nonzero가 항상 (줄 번호, 칸 번호) 둘을 돌려줘서 받는 것. 안 쓰면 `_, xs = np.nonzero(mask)`
+    - inRange는 76800칸을 전부 검사(사진마다, 1초에 약 24번). 76800은 사진 한 장(프레임)의 칸 수 = URDF width × height, Gazebo 창 크기와 무관
+    - lower [0, 0, 100] / upper [80, 80, 255]: B, G는 조금만(80 이하, 흰색·회색·주황 탈락), R은 충분히(100 이상, 그늘진 빨강은 통과). 한 값만 쓰면 빛·그림자로 거의 탈락. 실제 값은 `print(frame[120, 160])`으로 재서 정한다. 마스크는 "범위 안 찾기 도구", 무엇을 찾을지는 범위가 정함
+    - 49000은 계산이 아니라 로그로 정한 값(76800의 약 64%, 아주 가까움). 물체 크기·카메라 해상도·원하는 거리마다 다시 재야 함 → 파라미터로 빼기. 실제 로봇은 깊이 카메라/라이다로 거리를 직접 잰다
+    - 140/180: 가운데 160에서 ±20칸. 기준이 160 하나면 직진이 없고 좌우만 오감. 구간을 좁히면 정확하지만 흔들리고, 넓히면 덜 흔들리지만 비스듬히 감
+    - 오른쪽(cx ≥ 180)이면 오른쪽 회전: 상자가 로봇 오른쪽 앞이라 그쪽을 봐야 가운데로 옴. 부호를 반대로 넣으면 상자를 화면 밖으로 밀어내 빙빙 돌다가 가끔 직진(예상 맞힘). 부호가 맞으면 cx가 160으로 모이고, 틀리면 멀어진다
+    - 판단 순서: ① len(xs) == 0 → 찾기 ② len(xs) > 49000 → 멈춤 ③ cx로 방향. 거리 검사가 먼저. 실수: len 20000·cx 250을 "왼쪽"(숫자가 클수록 오른쪽), len 60000·cx 100을 "왼쪽 회전"(②에서 return이라 cx는 안 봄)
+    - return은 아래 줄이 실행되면 안 될 때만: 0개 블록(아래 mean이 nan), 멈춤 블록(아래가 전진으로 덮어씀). if/elif/else는 원래 하나만 실행되고 뒤에 publish뿐이라 불필요
+    - practice.py judge(count, cx): return으로 답을 정하는 함수로 흐름 연습. judge(60000, 100) → 멈춤, judge(49000, 100) → 왼쪽(>는 같은 값 미포함). 경우를 다 안 쓰면 return 없이 끝나서 None. return 대신 print만 하는 버전은 "보냄: 멈춤" 다음 "보냄: 왼쪽"까지 찍힘 → 로봇에 명령 두 개, 플러그인은 마지막(왼쪽)을 따름. return = 이번 사진에 대한 답은 이걸로 끝
+    - while/for 필요 없음: spin이 사진마다 콜백을 다시 부르는 게 반복. 콜백 안 while은 이번 사진의 xs가 안 바뀌어 영원히 안 끝나고 다음 사진도 못 받음. 콜백은 매번 맨 위(cmd = Twist())부터 다시 실행되고, 30번 줄 검사의 답이 바뀌어 다른 길로 감. 이전 사진은 기억하지 않음
+  - e01_turtle_judge.py (쉬운 예제로 같은 구조, turtlesim): /turtle1/pose Sub + /turtle1/cmd_vel Pub. x > 9 → 0 publish → return, y > 9 → 0 publish → return, 그 외 linear.x 1.0
+    - x 9.096에서 멈춤(넘은 걸 본 뒤에 멈춰서 조금 넘음, follow의 54677과 같은 이유). teleport_absolute theta 1.57(위)로 옮기니 y 9.1에서 멈춤 → 두 갈림길 다 확인
+    - 실수: follow에서 복사한 토픽(/camera/image, /cmd_vel → 조용히 안 됨, 설계 표를 건너뛰어서), 멈춤에 print만(로봇에 아무것도 안 보냄, turtlesim은 1초 뒤 저절로 멈춰 우연히 됨, Gazebo는 안 멈춤), 안 쓰는 import
+    - if/elif/else + return을 같이 씀: elif면 return 없이도 하나만 실행
+  - 다음: e02 세 방향 판단(예: y > 7 왼쪽 회전, y < 3 오른쪽 회전, 그 외 직진)으로 follow의 cx 부분 연습 → r06_follow_2 이어 쓰기 → 진도(패키지 → launch로 T1~T5 → 파라미터 → 액션 서버 → LLM)
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
