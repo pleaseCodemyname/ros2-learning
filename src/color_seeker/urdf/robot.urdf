@@ -1,0 +1,72 @@
+<?xml version="1.0"?>
+<robot name="stt_robot">
+    <link name="base_link">
+        <visual> <!-- visual: 어떻게 보일까?-->
+            <geometry> <!-- geometry : 모양 정의 -->
+                <box size="0.4 0.3 0.1"/> <!--앞뒤 40cm, 좌우 30cm, 높이 10cm-->
+            </geometry>
+        </visual>
+        <collision> <!-- collision: 충돌, collision을 계산해야하는 이유: 로봇이 물체를 뚫고 지나가지 않게하기 위함-->
+            <geometry>
+                <box size="0.4 0.3 0.1"/>
+            </geometry>
+        </collision>
+        <inertial> <!-- inertial: 무게정보, 이 물체가 얼마나 무겁고 어떻게 회전하려고 하는가 물리엔진(Gazebo 등)에게 알려주는 정보-->
+            <mass value="1.0"/> <!-- 질량: 1kg-->
+            <inertia ixx="0.0083" ixy="0" ixz="0" iyy="0.0142" iyz="0" izz="0.0208"/> <!-- inertia: 관성 모멘트(Moment of Inertia): 얼마나 회전하기 어려울까?-->
+        </inertial>
+    </link>
+
+    <link name="right_wheel">
+        <visual>
+            <geometry>
+                <cylinder radius="0.1" length="0.05"/> <!-- 반지름: 10cm = 지름 20cm, 두께: 5cm-->
+            </geometry>
+            <origin rpy="1.57 0 0"/> <!-- roll: 1.57(90도 회전) -->
+        </visual>
+        <collision>
+            <geometry>
+                <cylinder radius="0.1" length="0.05"/>
+            </geometry>
+            <origin rpy="1.57 0 0"/> <!-- roll: 1.57(90도 회전) -->
+        </collision>
+        <inertial>
+            <mass value="0.3"/>
+            <inertia ixx="0.00081" ixy="0" ixz="0" iyy="0.0015" iyz="0" izz="0.00081"/> <!-- iyy = 0.0015: 차축(y) 방향. 0.3 * 0.1² / 2 | ixx = izz = 0.00081: 나머지 두 축. 0.3 × (3 × 0.1² + 0.05²) / 12-->
+        </inertial>
+    </link>
+
+    <joint name="base_link_to_right_wheel" type="continuous"> <!-- type(1)continuous: 계속 돔 (2)fixed: 용접(고정) (3) revolute: 범위 안에서만 돔(팔꿈치, 다리), limit 필수-->
+        <parent link="base_link"/> <!-- 부모 링크: base_link (몸통)-->
+        <child link="right_wheel"/> <!-- 자식 링크: right_wheel (오른쪽 바퀴)-->
+        <origin xyz="0 -0.175 0"/>  <!-- x:몸통 가운데에서 앞뒤로 0, y:오른쪽으로 17.5cm, z:위아래로 0에 바퀴가 위치함-->
+        <axis xyz="0 1 0"/> <!-- 어느 방향으로 향할것인지? Y방향-->
+    </joint>
+
+    <link name="left_wheel">
+        <visual>
+            <geometry>
+                <cylinder radius="0.1" length="0.05"/>
+            </geometry>
+            <origin rpy="1.57 0 0"/>
+        </visual>
+        <collision>
+            <geometry>
+                <cylinder radius="0.1" length="0.05"/>
+            </geometry>
+            <origin rpy="1.57 0 0"/>
+        </collision>
+        <inertial>
+            <mass value="0.3"/>
+            <inertia ixx="0.00081" ixy="0" ixz="0" iyy="0.0015" iyz="0" izz="0.00081"/>
+        </inertial>
+    </link>
+    
+    <joint name="base_link_to_left_wheel" type="continuous">
+        <parent link="base_link"/>
+        <child link="left_wheel"/>
+        <origin xyz="0 0.175 0"/>
+        <axis xyz="0 1 0"/>
+    </joint>
+
+</robot>
