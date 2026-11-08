@@ -18,9 +18,13 @@ class ColorSeeker(Node):
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
         self.bridge = CvBridge()
         self.declare_parameter("stop_count", 49000)
+        self.declare_parameter("turn_speed", 0.3)
+        self.declare_parameter("forward_speed", 0.2)
 
     def color_seeker_callback(self, msg):
         stop_count = self.get_parameter("stop_count").value
+        turn_speed = self.get_parameter("turn_speed").value
+        forward_speed = self.get_parameter("forward_speed").value
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8') # msg를 -> Opencv로 바꾸는 함수: imgmsg_to_cv2
         self.get_logger().info(f"{frame.shape}", throttle_duration_sec=1.0)
         lower = np.array([0, 0, 60])
@@ -30,7 +34,7 @@ class ColorSeeker(Node):
         self.get_logger().info(f"{len(xs)}", throttle_duration_sec=1.0) # 8950: 로봇 카메라 사진 한 장 안에서 빨간 범위를 통과한 픽셀(칸)수. 가로320칸, 세로 240칸 모두 76800칸(URDF 센서에 적은 <width><height>)
         cmd = Twist()
         if len(xs) == 0: # 빨간 칸 0개: 제자리에서 왼쪽으로 천천히 회전
-            cmd.angular.z = 0.3 # 반시계방향(왼쪽)으로 회전
+            cmd.angular.z = turn_speed # 반시계방향(왼쪽)으로 회전
             self.publisher_.publish(cmd)
             return
         elif len(xs) > stop_count: # 빨간 칸 stop_count(기본 49000)초과: 멈춤 | 320 * 240 = 76,800칸(카메라의 절반 이상이 빨간색으로 가득차면)
@@ -39,11 +43,11 @@ class ColorSeeker(Node):
         cx = xs.mean() # 빨간 칸들이 가로로 어디쯤 모여 있는지, 가운데 위치를 구한 것, xs에는 빨간 칸 8950개의 칸 번호가 하나씩 들어있는데, xs.mean()은 그 8950개 번호의 평균임. 다 더해서 8950으로 나눈 값임. 그래서 cx는 빨간 덩어리의 가로 가운데임
         self.get_logger().info(f"cx: {cx}", throttle_duration_sec=1.0) # cx: 41.54223(가로 320칸 중 41번 쯤에 위치해있음, 왼쪽 끝)
         if cx < 140:
-            cmd.angular.z = 0.3
+            cmd.angular.z = turn_speed
         elif cx > 180:
-            cmd.angular.z = -0.3
+            cmd.angular.z = -turn_speed
         else:
-            cmd.linear.x = 0.2
+            cmd.linear.x = forward_speed
         self.publisher_.publish(cmd)
         
 
