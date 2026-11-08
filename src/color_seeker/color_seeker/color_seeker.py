@@ -17,8 +17,10 @@ class ColorSeeker(Node):
         self.subscription = self.create_subscription(Image, '/camera/image',self.color_seeker_callback, 10)
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
         self.bridge = CvBridge()
+        self.declare_parameter("stop_count", 49000)
 
     def color_seeker_callback(self, msg):
+        stop_count = self.get_parameter("stop_count").value
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8') # msg를 -> Opencv로 바꾸는 함수: imgmsg_to_cv2
         self.get_logger().info(f"{frame.shape}", throttle_duration_sec=1.0)
         lower = np.array([0, 0, 60])
@@ -31,10 +33,10 @@ class ColorSeeker(Node):
             cmd.angular.z = 0.3 # 반시계방향(왼쪽)으로 회전
             self.publisher_.publish(cmd)
             return
-        elif len(xs) > 49000: # 빨간 칸 49000초과: 멈춤 | 320 * 240 = 76,800칸(카메라의 절반 이상이 빨간색으로 가득차면)
+        elif len(xs) > stop_count: # 빨간 칸 stop_count(기본 49000)초과: 멈춤 | 320 * 240 = 76,800칸(카메라의 절반 이상이 빨간색으로 가득차면)
             self.publisher_.publish(cmd) # 빨간 칸이 많음 = 아주 가까움: 멈춤
             return
-        cx = xs.mean() # 빨간 칸들이 가로로 어디쯤 모여 있는지, 가운데 위치를 구한 것, xs에는 빨간 칸 9850개의 칸 번호가 하나씩 들어있는데, xs.mean()은 그 8950개 번호의 평균임. 다 더해서 8950으로 나눈 값임. 그래서 cx는 빨간 덩어리의 가로 가운데임
+        cx = xs.mean() # 빨간 칸들이 가로로 어디쯤 모여 있는지, 가운데 위치를 구한 것, xs에는 빨간 칸 8950개의 칸 번호가 하나씩 들어있는데, xs.mean()은 그 8950개 번호의 평균임. 다 더해서 8950으로 나눈 값임. 그래서 cx는 빨간 덩어리의 가로 가운데임
         self.get_logger().info(f"cx: {cx}", throttle_duration_sec=1.0) # cx: 41.54223(가로 320칸 중 41번 쯤에 위치해있음, 왼쪽 끝)
         if cx < 140:
             cmd.angular.z = 0.3
