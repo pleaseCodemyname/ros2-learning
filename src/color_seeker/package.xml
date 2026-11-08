@@ -3,10 +3,13 @@
 <package format="3">
   <name>color_seeker</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Differential-drive robot in Gazebo that finds and approaches an object of a given color using its camera</description>
   <maintainer email="545austin@naver.com">shy</maintainer>
-  <license>TODO: License declaration</license>
-
+  <license>Apache-2.0</license>
+  <depend>rclpy</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

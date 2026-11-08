@@ -15,8 +15,8 @@ setup(
     zip_safe=True,
     maintainer='shy',
     maintainer_email='545austin@naver.com',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='Differential-drive robot in Gazebo that finds and approaches an object of a given color using its camera',
+    license='Apache-2.0',
     extras_require={
         'test': [
             'pytest',
@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            "color_seeker = color_seeker.color_seeker:main" # "실행이름 = 패키지.파일:main"
         ],
     },
 )
