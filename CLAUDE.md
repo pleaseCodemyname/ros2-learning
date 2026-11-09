@@ -328,7 +328,7 @@
 - 반복 연습 대신 포트폴리오 프로젝트로 전환 (2026-11-04)
 
 ## color_seeker 프로젝트 (src/color_seeker, "말로 시키면 그 색 물체를 찾아가는 로봇")
-- 단계: 1 노드를 처음부터 → 2 파라미터 → 3 launch(T1~T5 한 번에) → 4 여러 색 상자 → 5 액션 서버 go_to_color → 6 LLM 노드 → 7 README/GIF. 1~4 완료, 다음은 5
+- 단계: 1 노드를 처음부터 → 2 파라미터 → 3 launch(T1~T5 한 번에) → 4 여러 색 상자 → 5 액션 서버 go_to_color → 6 LLM 노드 → 7 README/GIF. 1~5 완료, 다음은 6
 - 구성: worlds/world.sdf(g04_world 복사, sensors 시스템 포함), worlds/red_box.sdf(직접 타이핑), urdf/robot.urdf(직접 작성), color_seeker/color_seeker.py, launch/color_seeker_launch.py
 - 패키지: `ros2 pkg create color_seeker --build-type ament_python`(src 안에서). 처음에 ~/ros2_ws 바로 아래에 만들어서 지우고 다시
 - 워크스페이스(ws) = src(고치는 곳) / build / install(실행되는 곳) / log. colcon은 ws 맨 위에서, pkg create는 src 안에서
@@ -400,6 +400,28 @@
   - launch parameters에 `"color": "red"` 추가. 세 색 다 launch로 확인
   - gz set_pose의 `orientation: {z: 1, w: 0}` = yaw 3.14(뒤). 쿼터니언, 바닥 로봇은 z = sin(yaw/2), w = cos(yaw/2). 안 적으면 정면(yaw 0)
   - 명령은 외우지 않고 노션에 적어 둔다(코드 블록 안에, 자동 고침 방지). 기억할 것은 뜻(-s 서비스 이름, --req 내용)과 찾는 곳(`gz service -l`, -h)
+- 5단계 액션 서버 go_to_color (`param set color`를 goal로 바꿈)
+  - 인터페이스 패키지 src/color_seeker_interfaces: ament_python에서는 msg/srv/action을 못 만들어서 `ros2 pkg create color_seeker_interfaces --build-type ament_cmake`
+    - action/GoToColor.action: `string color` / `---` / `bool success` / `---` / `int32 pixel_count`(goal, result, feedback 순서, 한 줄에 하나). 파일에는 타입과 칸 이름만, 값(blue)은 보낼 때
+    - 칸 이름은 소문자+밑줄, 파일 이름은 대문자로 시작(GoToColor = import 이름). 기본 타입은 소문자(`bool`, `string`. `boolean`·`String`은 에러)
+    - CMakeLists.txt: `find_package(rosidl_default_generators REQUIRED)` + `rosidl_generate_interfaces(${PROJECT_NAME} "action/GoToColor.action")`. package.xml: `<buildtool_depend>rosidl_default_generators</buildtool_depend>`, `<exec_depend>rosidl_default_runtime</exec_depend>`, `<member_of_group>rosidl_interface_packages</member_of_group>`(고정 문구)
+    - 확인: 빌드 → source(새 패키지) → `ros2 interface show color_seeker_interfaces/action/GoToColor`
+    - 쓰는 쪽 color_seeker/package.xml에 `<depend>color_seeker_interfaces</depend>`(처음에 인터페이스 패키지 자기 package.xml에 넣음 = 순환)
+  - 노드: `from rclpy.action import ActionServer, CancelResponse`, `from color_seeker_interfaces.action import GoToColor`. 도구(ActionServer)와 양식(GoToColor)은 다른 import. 이번엔 내가 server, client는 send_goal 명령(6단계엔 LLM 노드)
+    - `__init__`: `ActionServer(self, GoToColor, "go_to_color", self.execute_callback, callback_group=ReentrantCallbackGroup(), cancel_callback=self.cancel_callback)`, 인스턴스 속성 `self.target_color = None`, `self.pixel_count = 0`, `self.arrived = False`. color 파라미터는 지움(launch에서도)
+    - 사진 콜백: 맨 위 `if self.target_color is None: return`(goal 없으면 대기), `color = self.target_color`, `self.pixel_count = len(xs)`, 멈춤 갈래에 `self.arrived = True`
+    - execute_callback(self, goal_handle): 색이 `not in ["red", "blue", "green"]`이면 warn → `goal_handle.abort()` → Result success False → return result. 아니면 pixel_count 0 · target_color = `goal_handle.request.color` · arrived False → `while not self.arrived:` 안에서 취소 검사 → `GoToColor.Feedback()`에 pixel_count → `publish_feedback` → `time.sleep(0.5)` → 끝나면 target_color None → `succeed()` → Result success True → return result
+    - 취소: `cancel_callback(self, goal_handle)`이 `CancelResponse.ACCEPT`를 돌려주면 `is_cancel_requested`가 True(등록 안 하면 기본 REJECT라 Ctrl+C가 무시됨). while 맨 위에서 보고 빈 Twist publish → target_color None → `goal_handle.canceled()` → result False
+    - 두 콜백은 인스턴스 속성으로 값을 주고받는다(사진 콜백이 쓰고 execute가 읽음)
+  - 스레드: `rclpy.spin`은 스레드 하나로 콜백을 하나씩 실행 → execute의 while이 끝나지 않아 사진 콜백이 한 번도 안 불림(feedback 0만 반복, 로봇 정지, 영원히 안 끝남). main을 `executor = MultiThreadedExecutor()` → `add_node` → `executor.spin()`으로, ActionServer는 다른 콜백 그룹(ReentrantCallbackGroup())에. 그룹을 안 나누면 기본 그룹은 한 번에 하나라 스레드가 여러 개여도 막힘
+  - 명령: `ros2 action send_goal /go_to_color color_seeker_interfaces/action/GoToColor "{color: 'blue'}" -f`. Ctrl+C는 send_goal 터미널에서(launch에서 누르면 전부 꺼짐)
+  - 결과
+    - blue: 0 → 11886 → … 39180 → `success: true`, SUCCEEDED(0.5초 사이에 49000을 넘어 마지막 feedback은 그 아래)
+    - 두 번째 goal(red) 첫 feedback 50729: 이전 goal의 pixel_count가 남음(target None이면 사진 콜백이 갱신 안 함) → 시작할 때 0으로 초기화
+    - yellow(검사 전): 남은 값 45341만 반복, 영원히 안 끝남. 사진 콜백 else에서 return해서 arrived를 아무도 안 바꿈. Ctrl+C도 서버가 무시해서 while이 계속 돔 → launch 재시작 필요 / 검사 후: feedback 없이 `success: false`, ABORTED
+    - 취소 처리 전 blue 도중 Ctrl+C: 로봇은 계속 가서 멈춤, 다음 goal은 이미 도착해 바로 SUCCEEDED(두 goal이 같은 self.arrived를 봄) / 처리 후: 0.5초 안에 정지. 서버의 `failed to send response (timeout)` 경고는 client가 먼저 꺼져서(s03과 같음, 무시)
+    - green(파랑 앞에서): 뒤쪽이라 0이 몇 초 이어짐(150° ÷ 0.3 rad/s ≈ 9초) → 928 → … 30186 → SUCCEEDED. 0이 이어질 땐 로봇이 도는지 먼저 보기
+  - 실수: `self.cli`(서버 이름으로 action_server), ActionServer import 빠짐, 수첩에 적기 대신 기존 값을 바꿔치기(`len(self.pixel_count)`, `> self.arrived`), `=` 방향 반대(`arrived = self.arrived`, `pixel_count = msg.pixel_count`: 사진 메시지에 없는 칸), `self.pixel_count = self.target_color`, `info(f"{goal_handle.succeed()}")`(None 찍힘), `return`만(result 안 돌려줌), `ReentrantCallbackGroup`(괄호 없음 = 클래스), `if not in 목록`(왼쪽 값 없음), `self.target_color.abort()`(→ goal_handle), 저장 안 함, 빌드 안 하고 실행
 - VS Code `Over 20 ports have been automatically forwarded`: Gazebo/ROS가 연 포트를 VS Code가 Windows로 연결해 주는 알림. 무시(끄려면 Remote: Auto Forward Ports)
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
@@ -661,9 +683,14 @@
 - `gz service`가 `Service call timed out`: 서비스 이름 오타(set_pos). 없는 서비스여도 에러 대신 timeout까지 기다린다 → `gz service -l | grep pose`
 - `ros2 param set` 두 개 중 하나만 반영: 한 줄씩 `Set parameter successful`을 확인하고 `ros2 param get`으로 다시 본다
 - if/elif로만 값을 정하면 아무것도 안 맞을 때 그 이름이 없어 아래에서 에러(UnboundLocalError) → else로 막는다
+- 액션 서버 feedback이 0만 나오고 로봇이 안 움직임: 단일 스레드 spin에서 execute_callback의 while이 다른 콜백을 막음 → MultiThreadedExecutor + 액션 서버를 별도 콜백 그룹에
+- 액션 goal이 안 끝남(feedback만 계속): 끝내는 조건(arrived)을 바꾸는 코드가 실행되지 않는 경로가 있음 → 시작할 때 검사해서 abort()
+- send_goal Ctrl+C 후에도 로봇이 계속 감: cancel_callback이 없으면 취소 요청을 거절함 → ACCEPT + while에서 is_cancel_requested 검사
+- 서버 로그 `failed to send response (timeout): client will not receive response`: 취소 후 client(send_goal)가 먼저 꺼짐. 취소는 처리됨
+- 인터페이스 `.action`/`.msg` 빌드 에러: 기본 타입을 대문자(`String`)나 다른 이름(`boolean`)으로 씀 → `string`, `bool`
 
 ## 다음 목표
-- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(다음: 5단계 액션 서버 go_to_color, goal = 색, feedback = 칸 수, result = 도착)
+- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(다음: 6단계 LLM 노드 = 말("파란 상자로 가 줘")을 `{color: 'blue'}` goal로 바꿔 보내는 액션 client)
 - 최종적으로 "자연어 명령 → 로봇 동작" 같은 LLM 연동 미니 프로젝트까지 만들어서 포트폴리오로 쓸 계획 (Physical AI 분야 취업 목표)
 
 ## 참고 사항
