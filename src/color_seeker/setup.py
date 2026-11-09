@@ -30,7 +30,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            "color_seeker = color_seeker.color_seeker:main" # "실행이름 = 패키지.파일:main"
+            "color_seeker = color_seeker.color_seeker:main", # "실행이름 = 패키지.파일:main"
+            "commander = color_seeker.commander:main"
         ],
     },
 )
