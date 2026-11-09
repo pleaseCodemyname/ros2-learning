@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<sdf version="1.8">
+    <model name="green_box">
+        <static>true</static> <!-- 물리 엔진(Gazebo)등이 이 모델을 움직이지 않는 물제로 다룸. 중력에도 안떨어지고, 로봇이 밀어도 안밀림. 움직이지 않으니 무게를 계산할 필요 없어 inertial이 없어도 됨--> 
+        <link name="link">
+            <visual name="visual"> <!-- 눈에 보이는 모양-->
+                <geometry> <!-- 모양 형태 -->
+                    <box><size>0.3 0.3 0.3</size></box>
+                </geometry>
+                <material> <!-- 물체가 어떤 색깔과 재질로 보일지, 빛을 받았을 때 어떻게 보일지?-->
+                    <ambient>0 1 0 1</ambient> <!-- 주변광: 어디서 오는지 없이 골고루 퍼진 빛을 받았을 때의 색, 순서: RGBA(빨강 초록 파랑 투명도)-->
+                    <diffuse>0 1 0 1</diffuse> <!-- 직접광: 햇빛같이 직접 받았을 때의 색, 순서: RGBA(빨강 초록 파랑 투명도)-->
+                </material>
+            </visual>
+            <collision name="collision"> <!-- 로봇은 상자를 뚫지 못하고 부딪힘-->
+                <geometry>
+                    <box><size>0.3 0.3 0.3</size></box>
+                </geometry>
+            </collision>
+        </link>
+    </model>
+</sdf>

@@ -20,15 +20,31 @@ class ColorSeeker(Node):
         self.declare_parameter("stop_count", 49000)
         self.declare_parameter("turn_speed", 0.3)
         self.declare_parameter("forward_speed", 0.2)
+        self.declare_parameter("color", "red")
 
     def color_seeker_callback(self, msg):
         stop_count = self.get_parameter("stop_count").value
         turn_speed = self.get_parameter("turn_speed").value
         forward_speed = self.get_parameter("forward_speed").value
+        color = self.get_parameter("color").value
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8') # msg를 -> Opencv로 바꾸는 함수: imgmsg_to_cv2
         self.get_logger().info(f"{frame.shape}", throttle_duration_sec=1.0)
-        lower = np.array([0, 0, 60])
-        upper = np.array([50, 50, 255])
+        # lower = np.array([0, 0, 60])
+        # upper = np.array([50, 50, 255])
+        if color == "red":
+            lower = np.array([0, 0, 60])
+            upper = np.array([50, 50, 255])
+        elif color == "blue":
+            lower = np.array([60, 0, 0])
+            upper = np.array([255, 50, 50])
+        elif color == "green":
+            lower = np.array([0, 60, 0])
+            upper = np.array([50, 255, 50])
+        else:
+            self.get_logger().warn(f"{color} 파랑, 초록, 빨강에 맞지 않는 색이 들어왔습니다.", throttle_duration_sec=1.0)
+            cmd = Twist()
+            self.publisher_.publish(cmd)
+            return 
         mask = cv2.inRange(frame, lower, upper)
         ys, xs = np.nonzero(mask)
         self.get_logger().info(f"{len(xs)}", throttle_duration_sec=1.0) # 8950: 로봇 카메라 사진 한 장 안에서 빨간 범위를 통과한 픽셀(칸)수. 가로320칸, 세로 240칸 모두 76800칸(URDF 센서에 적은 <width><height>)

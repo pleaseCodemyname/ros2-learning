@@ -15,7 +15,7 @@ setup(
         ('share/color_seeker/urdf',
             ['urdf/robot.urdf']),
         ('share/color_seeker/worlds',
-            ['worlds/world.sdf', 'worlds/red_box.sdf']),
+            ['worlds/world.sdf', 'worlds/red_box.sdf', 'worlds/blue_box.sdf', 'worlds/green_box.sdf']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
