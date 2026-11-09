@@ -21,7 +21,8 @@ class ColorSeeker(Node):
         self.subscription = self.create_subscription(Image, '/camera/image',self.color_seeker_callback, 10)
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
         self.bridge = CvBridge()
-        self.action_server = ActionServer(self, GoToColor, "go_to_color", self.execute_callback, callback_group=ReentrantCallbackGroup())
+        self.action_server = ActionServer(self, GoToColor, "go_to_color", self.execute_callback, callback_group=ReentrantCallbackGroup()
+                                          )
         self.declare_parameter("stop_count", 49000)
         self.declare_parameter("turn_speed", 0.3)
         self.declare_parameter("forward_speed", 0.2)
@@ -79,6 +80,14 @@ class ColorSeeker(Node):
         self.publisher_.publish(cmd)
 
     def execute_callback(self, goal_handle):
+        if goal_handle.request.color not in ["red", "blue", "green"]:
+            self.get_logger().warn(f"{goal_handle.request.color}")
+            goal_handle.abort()
+            result = GoToColor.Result()
+            result.success = False
+            return result
+            
+        self.pixel_count = 0
         self.target_color = goal_handle.request.color
         self.arrived = False
         
