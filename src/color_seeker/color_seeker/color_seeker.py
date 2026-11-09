@@ -12,7 +12,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-from rclpy.action import ActionServer
+from rclpy.action import ActionServer, CancelResponse
 from color_seeker_interfaces.action import GoToColor
 
 class ColorSeeker(Node):
@@ -21,8 +21,7 @@ class ColorSeeker(Node):
         self.subscription = self.create_subscription(Image, '/camera/image',self.color_seeker_callback, 10)
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
         self.bridge = CvBridge()
-        self.action_server = ActionServer(self, GoToColor, "go_to_color", self.execute_callback, callback_group=ReentrantCallbackGroup()
-                                          )
+        self.action_server = ActionServer(self, GoToColor, "go_to_color", self.execute_callback, callback_group=ReentrantCallbackGroup(), cancel_callback=self.cancel_callback)
         self.declare_parameter("stop_count", 49000)
         self.declare_parameter("turn_speed", 0.3)
         self.declare_parameter("forward_speed", 0.2)
@@ -81,7 +80,7 @@ class ColorSeeker(Node):
 
     def execute_callback(self, goal_handle):
         if goal_handle.request.color not in ["red", "blue", "green"]:
-            self.get_logger().warn(f"{goal_handle.request.color}")
+            self.get_logger().warn(f"{goal_handle.request.color}: red, blue, green 중 하나여야 합니다.")
             goal_handle.abort()
             result = GoToColor.Result()
             result.success = False
@@ -92,6 +91,14 @@ class ColorSeeker(Node):
         self.arrived = False
         
         while not self.arrived:
+            if goal_handle.is_cancel_requested:
+                cmd = Twist()
+                self.publisher_.publish(cmd)
+                self.target_color = None
+                goal_handle.canceled()
+                result = GoToColor.Result()
+                result.success = False
+                return result
             feedback = GoToColor.Feedback()
             feedback.pixel_count = self.pixel_count
             goal_handle.publish_feedback(feedback)
@@ -102,7 +109,10 @@ class ColorSeeker(Node):
         result = GoToColor.Result()
         result.success = True
         return result
-        
+
+    def cancel_callback(self, goal_handle):
+        return CancelResponse.ACCEPT
+
 
 def main(args=None):
     rclpy.init(args=args)
