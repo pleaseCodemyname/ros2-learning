@@ -328,7 +328,7 @@
 - 반복 연습 대신 포트폴리오 프로젝트로 전환 (2026-11-04)
 
 ## color_seeker 프로젝트 (src/color_seeker, "말로 시키면 그 색 물체를 찾아가는 로봇")
-- 단계: 1 노드를 처음부터 → 2 파라미터 → 3 launch(T1~T5 한 번에) → 4 여러 색 상자 → 5 액션 서버 go_to_color → 6 LLM 노드 → 7 README/GIF. 1~3 완료, 다음은 4
+- 단계: 1 노드를 처음부터 → 2 파라미터 → 3 launch(T1~T5 한 번에) → 4 여러 색 상자 → 5 액션 서버 go_to_color → 6 LLM 노드 → 7 README/GIF. 1~4 완료, 다음은 5
 - 구성: worlds/world.sdf(g04_world 복사, sensors 시스템 포함), worlds/red_box.sdf(직접 타이핑), urdf/robot.urdf(직접 작성), color_seeker/color_seeker.py, launch/color_seeker_launch.py
 - 패키지: `ros2 pkg create color_seeker --build-type ament_python`(src 안에서). 처음에 ~/ros2_ws 바로 아래에 만들어서 지우고 다시
 - 워크스페이스(ws) = src(고치는 곳) / build / install(실행되는 곳) / log. colcon은 ws 맨 위에서, pkg create는 src 안에서
@@ -386,6 +386,20 @@
   - 결과: 한 줄로 cx 45 → 145 → 칸 56360 멈춤 → 61900 반복, Ctrl+C 한 번에 전부 종료
   - 실수: data_files 줄 사이 쉼표 빠짐, 경로를 `launch/robot.urdf`·`color_seeker/urdf/...`로, import를 `import LaunchDescription`처럼(→ from 패키지 import 이름), 명령 전체를 한 칸에, 경로를 직접 적음, `"world"`(글자), `-file` 빠짐, `sensors_msgs`·`Tiwst` 오타
   - 예전에 터미널로 켠 gz sim/bridge가 1시간 넘게 남아 있어 헷갈림 → `ps -eo pid,cmd | grep -E "gz sim|parameter_bridge" | grep -v grep`, `pkill -f "gz sim"`
+- 4단계 여러 색 상자 + color 파라미터
+  - blue_box.sdf / green_box.sdf: red_box.sdf 복사 → model 이름과 ambient/diffuse만(`0 0 1 1`, `0 1 0 1`). setup.py worlds 리스트에도 추가
+  - 위치는 SDF가 아니라 launch create 인자: 빨강 (1.0, 0.4), 파랑 (1.0, −0.4), 초록 (−1.0, 0), z는 셋 다 0.15(반 변). static 상자는 z 0이면 아래 절반이 바닥에 묻힌 채 고정. `-name`은 서로 달라야
+  - 색 재기: 로봇을 세워 두고(`ros2 param set /color_seeker turn_speed 0.0`, forward_speed도. 소수 파라미터라 0이 아니라 0.0) set_pose로 원점 → 사진 한 장의 칸 값 세기
+    - 빨강 (0, 0, 100~116), 파랑 (100, 0, 0), 초록 (0, 177, 0). SDF 숫자가 같아도 렌더링 결과는 색마다 다르다 → 재고 정한다
+    - 원점 정면에서 빨강(cx 41.7)과 파랑(cx 277.3)이 둘 다 8982칸(y ±0.4 대칭), 정면 1.0m 초록은 13554칸
+  - 범위(같은 규칙: 찾는 칸 60 이상, 나머지 두 칸 50 이하): 빨강 `[0,0,60]~[50,50,255]`, 파랑 `[60,0,0]~[255,50,50]`, 초록 `[0,60,0]~[50,255,50]`
+  - 코드: `declare_parameter("color", "red")`, 콜백에서 꺼내 if/elif로 lower/upper 고르기. else: `warn(f"{color} ...", throttle)` → 새 `Twist()` publish → return
+    - else가 없으면 lower가 한 번도 안 만들어져 inRange에서 에러 → 노드가 죽고 로봇은 마지막 명령(직진)을 계속 따름. 실행 중 `param set color yellow` → 경고만 나오고 칸 수/cx 로그가 사라짐(return해서 아래 줄 안 감), 노드는 살아 있음
+  - 실행 중 `param set color blue`: 빨강 앞이라 0 → 왼쪽 회전 → 파랑이 왼쪽 끝(cx 0.65)에 들어옴 → cx 57 → 128 → 147 직진 → 56010 멈춤. 파랑은 오른쪽에 있었는데 0개 갈래가 항상 왼쪽이라 거의 한 바퀴(개선 거리)
+  - `color green`: 멀어서 1285 → 5288 → … 직진 중 천천히 늘어남(칸 수 = 거리 대신), cx는 140 경계 안쪽 141~146. 52938에서 멈춤 명령 후에도 62650까지 밀려 남(바로 안 섬, 빨강 56360 → 61900과 같음)
+  - launch parameters에 `"color": "red"` 추가. 세 색 다 launch로 확인
+  - gz set_pose의 `orientation: {z: 1, w: 0}` = yaw 3.14(뒤). 쿼터니언, 바닥 로봇은 z = sin(yaw/2), w = cos(yaw/2). 안 적으면 정면(yaw 0)
+  - 명령은 외우지 않고 노션에 적어 둔다(코드 블록 안에, 자동 고침 방지). 기억할 것은 뜻(-s 서비스 이름, --req 내용)과 찾는 곳(`gz service -l`, -h)
 - VS Code `Over 20 ports have been automatically forwarded`: Gazebo/ROS가 연 포트를 VS Code가 Windows로 연결해 주는 알림. 무시(끄려면 Remote: Auto Forward Ports)
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
@@ -644,9 +658,12 @@
 - package.xml에 자기 자신을 depend로 넣으면 순환 의존
 - `ParameterNotDeclaredException`: declare_parameter 없이 get_parameter. `self.이름 = 값`은 파이썬 변수일 뿐 파라미터 선언이 아님
 - `get_package_share_directory` → `package ... not found`: 그 터미널이 새 패키지 빌드 전에 열려 source가 안 됨
+- `gz service`가 `Service call timed out`: 서비스 이름 오타(set_pos). 없는 서비스여도 에러 대신 timeout까지 기다린다 → `gz service -l | grep pose`
+- `ros2 param set` 두 개 중 하나만 반영: 한 줄씩 `Set parameter successful`을 확인하고 `ros2 param get`으로 다시 본다
+- if/elif로만 값을 정하면 아무것도 안 맞을 때 그 이름이 없어 아래에서 에러(UnboundLocalError) → else로 막는다
 
 ## 다음 목표
-- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(다음: 4단계 여러 색 상자 + 찾을 색 파라미터)
+- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(다음: 5단계 액션 서버 go_to_color, goal = 색, feedback = 칸 수, result = 도착)
 - 최종적으로 "자연어 명령 → 로봇 동작" 같은 LLM 연동 미니 프로젝트까지 만들어서 포트폴리오로 쓸 계획 (Physical AI 분야 취업 목표)
 
 ## 참고 사항
