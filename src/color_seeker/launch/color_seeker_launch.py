@@ -19,5 +19,5 @@ def generate_launch_description():
         Node(package="ros_gz_sim", executable="create", arguments=["-file", blue_box, "-name", "blue_box", "-x", "1.0", "-y", "-0.4", "-z", "0.15"]),
         Node(package="ros_gz_sim", executable="create", arguments=["-file", green_box, "-name", "green_box", "-x", "-1.0", "-y", "0", "-z", "0.15"]),
         Node(package="ros_gz_bridge", executable="parameter_bridge", arguments=["/camera/image@sensor_msgs/msg/Image[gz.msgs.Image","/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist"]),
-        Node(package="color_seeker", executable="color_seeker", parameters=[{"stop_count": 49000, "turn_speed": 0.3, "forward_speed": 0.2, "color": "red"}], output="screen")
+        Node(package="color_seeker", executable="color_seeker", parameters=[{"stop_count": 49000, "turn_speed": 0.3, "forward_speed": 0.2}], output="screen") # "color": "red"는 이제 goal로 받기 때문에 필요없어짐
     ])
