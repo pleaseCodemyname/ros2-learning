@@ -324,7 +324,69 @@
     - x 9.096에서 멈춤(넘은 걸 본 뒤에 멈춰서 조금 넘음, follow의 54677과 같은 이유). teleport_absolute theta 1.57(위)로 옮기니 y 9.1에서 멈춤 → 두 갈림길 다 확인
     - 실수: follow에서 복사한 토픽(/camera/image, /cmd_vel → 조용히 안 됨, 설계 표를 건너뛰어서), 멈춤에 print만(로봇에 아무것도 안 보냄, turtlesim은 1초 뒤 저절로 멈춰 우연히 됨, Gazebo는 안 멈춤), 안 쓰는 import
     - if/elif/else + return을 같이 씀: elif면 return 없이도 하나만 실행
-  - 다음: e02 세 방향 판단(예: y > 7 왼쪽 회전, y < 3 오른쪽 회전, 그 외 직진)으로 follow의 cx 부분 연습 → r06_follow_2 이어 쓰기 → 진도(패키지 → launch로 T1~T5 → 파라미터 → 액션 서버 → LLM)
+  - e02_turtle_lane.py: y > 7이면 angular.z −0.5(시계, 오른쪽), y < 3이면 +0.5(반시계, 왼쪽), 그 외 직진. 처음엔 부호가 반대라 위쪽 벽으로 감 → 관찰 후 뒤집음. 로그 문구의 시계/반시계가 아직 바뀌어 있음
+- 반복 연습 대신 포트폴리오 프로젝트로 전환 (2026-11-04)
+
+## color_seeker 프로젝트 (src/color_seeker, "말로 시키면 그 색 물체를 찾아가는 로봇")
+- 단계: 1 노드를 처음부터 → 2 파라미터 → 3 launch(T1~T5 한 번에) → 4 여러 색 상자 → 5 액션 서버 go_to_color → 6 LLM 노드 → 7 README/GIF. 1~3 완료, 다음은 4
+- 구성: worlds/world.sdf(g04_world 복사, sensors 시스템 포함), worlds/red_box.sdf(직접 타이핑), urdf/robot.urdf(직접 작성), color_seeker/color_seeker.py, launch/color_seeker_launch.py
+- 패키지: `ros2 pkg create color_seeker --build-type ament_python`(src 안에서). 처음에 ~/ros2_ws 바로 아래에 만들어서 지우고 다시
+- 워크스페이스(ws) = src(고치는 곳) / build / install(실행되는 곳) / log. colcon은 ws 맨 위에서, pkg create는 src 안에서
+- robot.urdf (stt_robot, check_urdf child 4개)
+  - base_link 상자 0.4 0.3 0.1(mass 1.0, ixx 0.0083 iyy 0.0142 izz 0.0208)
+  - right_wheel/left_wheel: cylinder radius 0.1 length 0.05, visual과 collision 둘 다 `<origin rpy="1.57 0 0"/>`, mass 0.3(ixx izz 0.00081, iyy 0.0015). joint continuous, origin y ∓0.175(몸통 반 15 + 바퀴 반 두께 2.5), axis 0 1 0
+  - cast_wheel: sphere 0.05, mass 0.1(0.0001 세 축), fixed joint origin `-0.15 0 -0.05`
+  - camera: box 0.05, mass 0.05(0.00002 세 축), fixed joint `base_link_to_camera` origin `xyz="0.175 0 0.075" rpy="0 0.3 0"`
+  - diff-drive 플러그인: left_joint/right_joint는 joint 이름, wheel_separation 0.35(두 바퀴 가운데 사이), wheel_radius 0.1, topic cmd_vel
+  - 카메라 센서: `<gazebo reference="camera">` 블록을 diff-drive `<gazebo>`와 따로(always_on, update_rate 30, topic camera/image, horizontal_fov 1.047, 320×240, clip 0.05/50)
+- origin 계산 규칙(퀴즈 Q1~Q7로 익힘): 한 축씩, cm 정수로. 부품 가운데 = 몸통 면(몸통 반) ± 부품 반. 몸통 면 밖으로 튀어나오면 +, 안쪽에 맞추면 −. 부호(앞/왼쪽/위 +, 뒤/오른쪽/아래 −)는 마지막에. 바닥 = 가운데 − 반지름. 바닥에 닿는 부품들의 바닥 z가 같아야 수평
+  - 막힌 곳: 미터와 cm 자릿수(0.05를 0.5로), "바깥/안쪽"의 의미, 축마다 다른 절반(x는 앞뒤 길이, z는 높이)
+- 관성(inertia): 질량은 정하는 값. 상자 m/12 × (a² + b²), 원통 차축 m r²/2 · 나머지 m(3r² + h²)/12, 구 2 m r²/5. 대칭 모양이면 ixy/ixz/iyz는 0. 현업은 CAD나 xacro 매크로에서 가져온다(외울 필요 없음)
+- rpy를 어디에 넣나
+  - visual/collision의 rpy는 모양만 돌린다(tf에 없음) → 바퀴는 여기(frame의 차축 y는 그대로 둬야 함)
+  - joint origin의 rpy는 frame을 돌린다(tf, axis, 센서 방향까지) → 카메라 숙이기는 여기. Gazebo 카메라는 frame의 🔴 x 방향을 찍는다
+  - 확인: `tf2_echo base_link camera`의 RPY가 [0, 0.3, 0]. `gz sdf -p robot.urdf`로 Gazebo가 읽은 SDF를 보면 센서 `<pose>`에 joint xyz·rpy가 그대로 들어감
+  - 실수: 카메라 rpy를 visual/collision에 넣음(RViz에선 숙여 보이지만 tf는 0), pitch 부호를 −로(앞이 아래로 = +), "z −0.075"(위는 +), "r 기준 0.3"(두 번째 자리 = pitch)
+- link 하나뿐이면 RViz에 `Frame [base_link] does not exist`(joint가 없어 robot_state_publisher가 tf를 안 올림) → 임시로 static_transform_publisher
+- Gazebo 확인
+  - Pose z 0.10 = base_link 가운데(바퀴 반지름). 몸통 바닥 0.05(5cm 틈), 윗면 0.15
+  - `gz topic -t /cmd_vel -m gz.msgs.Twist -p "linear: {x: 0.3}"` → +x로 감, 0으로 멈춤. `angular: {z: 0.5}` → 반시계 제자리 회전
+  - odometry: pose는 odom 기준, twist는 base_link 기준(그래서 x가 줄어도 twist.x는 +0.3). twist 0.3 = 보낸 값 → wheel_radius/separation이 맞다는 증거
+  - angular.z 0.5는 각도가 아니라 속도(0.5 rad/s ≈ 28.6°/s, 한 바퀴 12.6초). 돈 각도 = 속도 × 시간. 바닥 로봇의 yaw는 쿼터니언에서 2 × atan2(z, w)
+  - `gz topic -l | grep camera` → /camera/image, /camera/camera_info(/gui/camera/pose는 Gazebo 화면 시점, 로봇과 무관)
+  - `gz model -m 이름 -p`로 위치 확인. 로봇 원점 되돌리기: `gz service -s /world/empty/set_pose --reqtype gz.msgs.Pose --reptype gz.msgs.Boolean --timeout 1000 --req 'name: "stt_bot", position: {x: 0, y: 0, z: 0.1}'`
+- bridge: `ros2 run ros_gz_bridge parameter_bridge 토픽@ROS인터페이스[Gazebo인터페이스`. 토픽 이름은 양쪽 공통(Gazebo에서 읽어 ROS에 같은 이름으로 올림), 순서는 항상 ROS 먼저, 방향은 가운데 기호만. `@`는 구분자
+  - bridge 전에는 `ros2 topic list`에 없다 → ROS 인터페이스는 내가 정하는 값(노드의 import: sensor_msgs/msg/Image), Gazebo 인터페이스는 `gz topic -i -t 토픽`으로 확인(-l은 이름만)
+  - 사진 약 25~29Hz(`update_rate 30`은 최대값, PC 상태에 따라 다름)
+  - 실수: `ros_gz bridge`(띄어쓰기), `/cmd/vel`, `geometry_msgs.msg`(점은 파이썬 import 모양), `geometry/msgs/msg/Twist`(패키지 이름은 밑줄 한 단어), `gz/msgs/Twist`(Gazebo는 점), Gazebo 인터페이스를 앞에 씀
+- color_seeker.py (r06 순서 그대로, 예전 파일 안 보고)
+  - 설계: Sub /camera/image(sensor_msgs/msg/Image), Pub /cmd_vel(geometry_msgs/msg/Twist), 타이머 없음
+  - 콜백: 파라미터 꺼내기 → `imgmsg_to_cv2(msg, 'bgr8')` → inRange → `ys, xs = np.nonzero(mask)` → 0개면 turn_speed 회전 → stop_count 초과면 멈춤 → `cx = xs.mean()` → cx < 140 왼쪽 / > 180 오른쪽(−turn_speed) / 그 외 forward_speed → publish
+  - 빨강 범위 `[0, 0, 60]` ~ `[50, 50, 255]`: 실제 상자 칸 값을 재 보니 (0, 0, 100)이 5807칸, (0, 0, 113~116)이 나머지(두 면). SDF `1 0 0 1`이어도 조명 때문에 R은 100~116뿐 → 180~240 범위는 0개. 100은 경계에 걸려 있어서 60으로 여유. 테두리 (79, 79, 93)는 B·G 50으로 거름. 지금 사진에선 두 범위 결과가 같고(8950), 차이는 조명이 바뀔 때 난다
+  - 8950 = 사진 한 장(76800칸) 중 범위를 통과한 칸 수(world 바닥 격자와 무관, 다가가면 커지고 화면 밖이면 0). 로봇·상자가 그대로면 같은 숫자 반복 = 서 있음
+  - cx 41.5 = 사진 가로 칸 번호(0~319) 중 빨간 칸 평균 위치, 정면에서 왼쪽 약 23°. 방향만 알고 거리는 모른다(거리는 개수로 추정)
+  - 결과: cx 41 → 118 → 146(직진) → 칸 47236 → 62702(멈춤), 상자 앞면에서 약 19cm
+  - 실수: 콜백 본문 비움(IndentationError), `cv2_to_imgmsg('bgr8')`(방향 반대 + msg 빠짐), `{frame}`(shape 대신 숫자 전체), `f"len{xs}"`(len이 {} 밖이라 글자), cx를 0개 검사 위에, angular.z 1.5(1초에 86°, 너무 빠름)
+  - 찾는 법: `python3 -c "from cv_bridge import CvBridge; print(dir(CvBridge))"`(함수 목록), `help(CvBridge.함수)`(사용법)
+- 패키지 등록: setup.py `"color_seeker = color_seeker.color_seeker:main"`(실행 이름 = 폴더.파일:함수). executable은 파일 이름이 아니라 등록한 실행 이름(`ros2 pkg executables color_seeker`). `ros2 run color_seeker color_seeker.py`는 안 됨
+  - package.xml `<depend>`: import한 ROS 패키지(rclpy, geometry_msgs, sensor_msgs, cv_bridge). rclpy.node·.msg처럼 점 뒤는 같은 패키지. 자기 자신(color_seeker)은 넣지 않음. numpy/cv2는 설치 이름(python3-numpy, python3-opencv)인데 cv_bridge가 끌어와서 생략. rosdep install이 이 목록으로 설치
+  - description/license 채움(Apache-2.0: ROS 2 기본, 허용형). package.xml에 적은 건 표시일 뿐이고 실제 적용은 LICENSE 파일(아직 없음, my_turtle_control/LICENSE 복사 가능)
+- 파라미터: stop_count 49000(정수), turn_speed 0.3, forward_speed 0.2(소수). `__init__`에서 `self.declare_parameter("이름", 기본값)`(결과를 = 로 받지 않음), 콜백 맨 위에서 지역 변수로 `.value`
+  - `-p stop_count:=30000` → 35492에서 멈춤, 약 32cm(49000은 약 19cm). 실행 중 `ros2 param set /color_seeker stop_count 49000` → 다시 출발해 62000 근처에서 멈춤(콜백에서 읽어서 반영)
+  - `-p turn_speed:=0.6` → 1초 만에 cx 157(0.3은 약 2초). 더 빠르면 직진 구간을 넘어 좌우로 흔들림
+  - `ros2 param list`의 use_sim_time, start_type_description_service는 모든 노드에 붙는 기본 파라미터
+  - 실수: `self.get_parameter = self.declare_parameter()`(Node 함수 덮어쓰기 + 괄호 비움), 기본값 `"49000"`(글자 타입), `self.turn_speed = 0.3`(파이썬 변수일 뿐 선언 아님 → ParameterNotDeclaredException)
+- launch (launch/color_seeker_launch.py, 프로세스 5개)
+  - setup.py data_files: `('share/color_seeker/launch', ['launch/color_seeker_launch.py'])`, urdf, worlds도 같은 모양. 오른쪽은 setup.py 옆에서 본 경로(`urdf/robot.urdf`), 왼쪽은 install 안 경로. 빌드하면 install/color_seeker/share/color_seeker/에 복사됨
+  - 경로: `pkg_share = get_package_share_directory("color_seeker")` → `os.path.join(pkg_share, "worlds", "world.sdf")`. `~`나 src 경로를 쓰지 않는다(launch는 셸을 안 거쳐 ~가 안 바뀌고, 다른 컴퓨터에선 경로가 다름)
+  - `ExecuteProcess(cmd=["gz", "sim", "-r", world])`: ROS 노드가 아닌 프로그램. 칸마다 한 단어(셸이 자르던 일을 내가 리스트로), 변수는 따옴표 없이
+  - `Node(package="ros_gz_sim", executable="create", arguments=["-file", robot, "-name", "stt_bot", "-z", "0.5"])`: 인자는 전부 문자열, 이름표(-file)와 값이 짝. 상자도 같은 모양(-x 1.0 -y 0.4 -z 0.15). create는 Gazebo가 준비될 때까지 기다렸다가 넣고 끝남(`finished cleanly`)
+  - bridge는 Node 하나에 arguments 두 덩어리(사진 `[`, cmd_vel `]`)
+  - `Node(package="color_seeker", executable="color_seeker", parameters=[{"stop_count": 49000, ...}], output="screen")`: parameters는 숫자 그대로(타입 유지)
+  - 결과: 한 줄로 cx 45 → 145 → 칸 56360 멈춤 → 61900 반복, Ctrl+C 한 번에 전부 종료
+  - 실수: data_files 줄 사이 쉼표 빠짐, 경로를 `launch/robot.urdf`·`color_seeker/urdf/...`로, import를 `import LaunchDescription`처럼(→ from 패키지 import 이름), 명령 전체를 한 칸에, 경로를 직접 적음, `"world"`(글자), `-file` 빠짐, `sensors_msgs`·`Tiwst` 오타
+  - 예전에 터미널로 켠 gz sim/bridge가 1시간 넘게 남아 있어 헷갈림 → `ps -eo pid,cmd | grep -E "gz sim|parameter_bridge" | grep -v grep`, `pkill -f "gz sim"`
+- VS Code `Over 20 ports have been automatically forwarded`: Gazebo/ROS가 연 포트를 VS Code가 Windows로 연결해 주는 알림. 무시(끄려면 Remote: Auto Forward Ports)
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
 
@@ -572,9 +634,19 @@
 - `tf2_echo base_link left_wheel`이 `Waiting for transform`에서 안 넘어감: 슬라이더 창(joint_state_publisher_gui)을 닫아서 /joint_states가 없음. 움직이는 joint는 각도를 받아야 tf가 올라간다. launch를 다시 켜고 슬라이더 창은 닫지 않는다
 - tf2_echo는 새 값인데 RViz 화살표가 그대로: RViz가 예전 tf를 그리고 있음. 왼쪽 아래 Reset, 안 되면 RViz를 껐다 켠다. 먼저 tf2_echo로 tf 문제인지 RViz 문제인지 나눈다
 - `ros2 topic info` 등이 아무것도 안 뜨고 멈춤: Ctrl+Z로 멈춘 프로그램들 사이에 ros2 daemon(안내 데스크)까지 얼어 있었음. 끌 때는 항상 Ctrl+C. 이미 Ctrl+Z 했으면 fg → Ctrl+C
+- check_urdf `joint [이름] has no type`: joint 여는 태그에 type 속성이 없음
+- check_urdf는 `<gazebo>` 안을 검사하지 않는다. 센서 설정을 속성(`update_rate="30", ...`)이나 맨 글자로 써도 통과하지만 Gazebo가 무시한다 → 값은 `<태그>값</태그>`, 태그 사이 값에 따옴표 없이(`<topic>"camera/image"</topic>`면 따옴표까지 토픽 이름), reference 오타(referenc)도 조용히 무시. `gz sdf -p 파일.urdf`로 Gazebo가 읽은 결과를 확인
+- `ros2 run`한 노드가 아무 로그 없이 조용함: 사진이 안 와서 콜백이 한 번도 안 불림. `ros2 topic list`(bridge 토픽이 있나), `gz topic -l`(Gazebo가 켜져 있나)부터
+- `The following arguments were not expected: ...`(gz service 등): 메모 앱 등을 거치며 `--`가 긴 대시(—), 따옴표가 둥근 따옴표(‘ ’ “ ”)로 자동 고침됨. 터미널에서 직접 치거나 대화창에서 바로 복사
+- `--req: At Most 1 required but received 3`: 여러 글자 옵션에 하이픈 하나(-req). 한 글자 옵션은 `-s`, 여러 글자는 `--reqtype`
+- 셸에 `>`가 뜨고 안 끝남: 따옴표를 열고 닫지 않음(작은따옴표로 열고 큰따옴표로 닫음 등). Ctrl+C 후 다시
+- setup.py data_files 줄 사이 쉼표가 없으면 `(...)(...)`가 호출로 읽혀 빌드 때 `'tuple' object is not callable`
+- package.xml에 자기 자신을 depend로 넣으면 순환 의존
+- `ParameterNotDeclaredException`: declare_parameter 없이 get_parameter. `self.이름 = 값`은 파이썬 변수일 뿐 파라미터 선언이 아님
+- `get_package_share_directory` → `package ... not found`: 그 터미널이 새 패키지 빌드 전에 열려 source가 안 됨
 
 ## 다음 목표
-- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 단계적으로 진행 예정
+- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(다음: 4단계 여러 색 상자 + 찾을 색 파라미터)
 - 최종적으로 "자연어 명령 → 로봇 동작" 같은 LLM 연동 미니 프로젝트까지 만들어서 포트폴리오로 쓸 계획 (Physical AI 분야 취업 목표)
 
 ## 참고 사항
