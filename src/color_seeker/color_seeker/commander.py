@@ -16,6 +16,7 @@ class Commander(Node):
         msg = feedback_msg.feedback.pixel_count
         self.get_logger().info(f"칸 수: {msg}")
 
+
 def choose_color(command):
     body = {
             "model": "llama3.1:8b",
@@ -26,7 +27,8 @@ def choose_color(command):
                 "type": "object",
                 "properties": {"color": {"type": "string", "enum": ["red", "blue", "green", "unknown"]}},
                 "required": ["color"]
-                        }
+                        },
+            "keep_alive": "30m",
             }
     try:
         http_response = requests.post("http://localhost:11434/api/generate", json=body, timeout=30) # body(딕셔너리)를 JSON(문자열)로 바꿔 Ollama에 POST로 보내고, 답이 올 때까지(최대 30초) 기다려서 HTTP 응답을 받음
@@ -39,6 +41,12 @@ def choose_color(command):
 def main(args=None):
     rclpy.init(args=args)
     commander = Commander()
+    commander.get_logger().info("LLM 준비 중...")
+    warmup = choose_color("빨간 거")
+    if warmup is None:
+        commander.get_logger().warn("LLM 연결 실패, 명령할 때 다시시도")
+    else:
+        commander.get_logger().info("LLM 준비 완료")
     try:
         while True:
             command = input("명령: ")
