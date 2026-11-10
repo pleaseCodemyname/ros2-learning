@@ -328,7 +328,7 @@
 - 반복 연습 대신 포트폴리오 프로젝트로 전환 (2026-11-04)
 
 ## color_seeker 프로젝트 (src/color_seeker, "말로 시키면 그 색 물체를 찾아가는 로봇")
-- 단계: 1 노드를 처음부터 → 2 파라미터 → 3 launch(T1~T5 한 번에) → 4 여러 색 상자 → 5 액션 서버 go_to_color → 6 LLM 노드 → 7 README/GIF. 1~5 완료, 다음은 6
+- 단계: 1 노드를 처음부터 → 2 파라미터 → 3 launch(T1~T5 한 번에) → 4 여러 색 상자 → 5 액션 서버 go_to_color → 6 LLM 노드 → 7 README/GIF. 1~6 완료, 다음은 7
 - 구성: worlds/world.sdf(g04_world 복사, sensors 시스템 포함), worlds/red_box.sdf(직접 타이핑), urdf/robot.urdf(직접 작성), color_seeker/color_seeker.py, launch/color_seeker_launch.py
 - 패키지: `ros2 pkg create color_seeker --build-type ament_python`(src 안에서). 처음에 ~/ros2_ws 바로 아래에 만들어서 지우고 다시
 - 워크스페이스(ws) = src(고치는 곳) / build / install(실행되는 곳) / log. colcon은 ws 맨 위에서, pkg create는 src 안에서
@@ -422,6 +422,39 @@
     - 취소 처리 전 blue 도중 Ctrl+C: 로봇은 계속 가서 멈춤, 다음 goal은 이미 도착해 바로 SUCCEEDED(두 goal이 같은 self.arrived를 봄) / 처리 후: 0.5초 안에 정지. 서버의 `failed to send response (timeout)` 경고는 client가 먼저 꺼져서(s03과 같음, 무시)
     - green(파랑 앞에서): 뒤쪽이라 0이 몇 초 이어짐(150° ÷ 0.3 rad/s ≈ 9초) → 928 → … 30186 → SUCCEEDED. 0이 이어질 땐 로봇이 도는지 먼저 보기
   - 실수: `self.cli`(서버 이름으로 action_server), ActionServer import 빠짐, 수첩에 적기 대신 기존 값을 바꿔치기(`len(self.pixel_count)`, `> self.arrived`), `=` 방향 반대(`arrived = self.arrived`, `pixel_count = msg.pixel_count`: 사진 메시지에 없는 칸), `self.pixel_count = self.target_color`, `info(f"{goal_handle.succeed()}")`(None 찍힘), `return`만(result 안 돌려줌), `ReentrantCallbackGroup`(괄호 없음 = 클래스), `if not in 목록`(왼쪽 값 없음), `self.target_color.abort()`(→ goal_handle), 저장 안 함, 빌드 안 하고 실행
+- 6단계 LLM 노드 commander (color_seeker/commander.py, `ros2 run color_seeker commander`, launch와 따로 터미널에서)
+  - 설계: 액션 client. 입력은 키보드 문장(`input()`), 출력은 go_to_color goal. 토픽 없음
+  - 처음 버전: `if "파란" in command` 식으로 색 고르기 → 바다색/풀색처럼 단어가 없으면 못 고름 → LLM으로 교체
+  - Ollama (WSL 안, `sudo apt-get install zstd` 후 설치, systemd 서비스 localhost:11434). Ollama는 실행 프로그램, 모델은 가중치 파일
+    - 모델 llama3.1:8b(Q4_K_M 양자화, 디스크 4.9GB, VRAM 약 5.3GB, 100% GPU). qwen2.5:7b, exaone3.5:7.8b(비상업 라이선스) 대신 선택
+    - 확인: `ollama ps`(올라간 모델, 언제 내려가나), `curl -s http://localhost:11434/api/generate -d @llm_test.json`(llm_test.json은 연습 파일, 커밋 안 함)
+  - `choose_color(command)`: class 밖 함수(노드 상태가 필요 없음, 그래서 logger도 없음)
+    - body: model, prompt(영어 지시 + 예시 4개 `빨간 컵으로 가 -> red` … `노란 거 -> unknown` + `Sentence: {command}`), `"stream": False`, `"options": {"temperature": 0}`, `"format"`(JSON schema, color enum red/blue/green/unknown, required), `"keep_alive": "30m"`
+    - temperature 0: 같은 문장이면 같은 답(없을 땐 같은 문장이 blue → green으로 바뀜). format enum: 정한 단어 중 하나만(없을 땐 "빨간색"처럼 답함)
+    - `requests.post(URL, json=body, timeout=30)` → `data = http_response.json()`(HTTP body → 딕셔너리) → `data["response"]`는 아직 문자열 `'{ "color": "blue" }'` → `json.loads(...)["color"]`. JSON이 두 겹
+    - `except requests.exceptions.RequestException: return None`: 부모 클래스라 ConnectionError(Ollama 꺼짐)와 Timeout을 같이 잡음. None = LLM에 못 물어봄, unknown = LLM이 모른다고 답함. main은 None이면 error 로그 후 continue(노드 유지, Ollama를 다시 켜면 복구)
+    - package.xml `<exec_depend>python3-requests</exec_depend>`
+  - 결과: 바다색 → blue, 풀색 박스 → green, 빨개 보이는 거 → red(전부 `4, True`), 노란 거 → unknown → `6, False`(서버가 abort)
+  - 속도
+    - Ollama는 기본 5분 안 쓰면 모델을 내린다 → 첫 명령 5.7초. main 시작 때 웜업(`choose_color("빨간 거")`, 약 5.9초, 실패하면 warn 후 계속) → 첫 명령 0.47초. `keep_alive 30m`(`ollama ps`에 29 minutes from now)
+    - "노란 거" 10.8초 확인: 응답의 `eval_count`(만든 토큰 수), `eval_duration`(만든 시간, 나노초 → `/1e9`)을 print. 지금은 토큰 10개 0.21초로 다른 명령과 같음(긴 답을 만든 게 아님). 그때는 웜업 전이라 모델 올리는 시간(`load_duration`, 따로 재는 칸)이었을 것
+    - `{answer_text!r}`: f-string 안에서만 됨(밖이면 set 문법 SyntaxError). repr로 공백·따옴표까지 보임. Python 3.12부터 f-string 안에 바깥과 같은 따옴표 가능(3.11 이하는 에러 → 바깥 `f'...'`)
+  - 스레드: 프로세스 안에서 코드를 한 줄씩 실행하는 흐름 하나. 같은 프로세스의 스레드끼리는 같은 객체(인스턴스 속성)를 본다
+    - 예전 구조는 스레드 하나라 `spin_until_future_complete`(결과 기다림) 동안 `input()`이 안 불림. 도중에 친 `멈춰`는 stdin 버퍼에 남았다가 도착 후 다음 `input()`이 바로 가져가서 LLM → unknown → ABORTED(예상 맞힘)
+    - 바꾼 구조: 메인 스레드는 `input()` 반복, `threading.Thread(target=rclpy.spin, args=(commander,), daemon=True).start()`로 spin은 백그라운드. target은 괄호 없이, args는 튜플(쉼표), daemon=True는 메인이 끝나면 같이 끝남
+    - 기다리기 대신 `future.add_done_callback(메서드)`: future가 끝나면 spin이 그 메서드를 불러 줌. future 두 개: ① send_goal_async → `goal_response_callback(self, future)`에서 `self.goal_handle = future.result()`, `self.result_future = self.goal_handle.get_result_async()`, ②에 `add_done_callback(self.get_result_callback)` / ② → `get_result_callback(self, future)`에서 `future.result().status`, `.result.success`
+    - 백그라운드에서 spin 중일 때 메인에서 `spin_until_future_complete`를 또 부르면 안 됨(같은 노드를 두 곳에서 spin)
+  - 멈춰: `input()` 바로 다음, LLM보다 위에서 `if command == "멈춰":` → goal_handle이 None이면 warn, 아니면 `cancel_goal_async()` → 둘 다 continue. 색 goal을 보내기 전에도 goal_handle이 있으면 먼저 취소. `== "멈춰"`는 글자가 같아야 함(멈춰!, 그만은 LLM으로 감. 나중에 enum에 stop)
+  - 두 goal이 겹칠 때 버그 둘(초록 도중 파랑, 원인은 같음: 이전 goal의 마무리 코드가 지금 goal의 인스턴스 속성을 덮어씀)
+    - 고치기 전: 서버 액션 그룹이 Reentrant라 두 execute가 같이 돔 → feedback이 0.5초에 두 줄, 파랑 도착 때 `4, True` 두 번(초록 goal도 같은 self.arrived를 보고 성공 보고)
+    - 버그 A(서버): 이전 goal의 취소 갈래가 `target_color = None`과 빈 Twist → 방금 시작한 파랑의 색을 지움 → 사진 콜백이 바로 return, 칸 수 0만, goal이 안 끝남
+    - 버그 B(client): 이전 goal의 결과가 0.1초 늦게 와서 `get_result_callback`이 `self.goal_handle = None` → 파랑 goal 핸들이 지워짐 → 다음 명령 때 취소를 안 보내 goal 두 개, 버려진 goal은 아무도 취소 못 함(launch 재시작)
+    - 고침 B: `self.result_future`에 저장하고 `if future is self.result_future:`일 때만 None(`is`는 같은 객체인지)
+    - 고침 A: 서버 `self.current_goal = goal_handle`(execute 시작 때). while 맨 위 ① `if self.current_goal is not goal_handle:` → abort → result False → return(공유 값 안 건드림) ② `is_cancel_requested` → 빈 Twist → target None → canceled → return ③ feedback → sleep. ①이 먼저인 이유: 이전 goal은 취소 요청도 받아서 둘 다 True, ②가 먼저면 새 goal의 색을 지움
+  - 결과(고친 뒤): 초록 도중 파랑 → 초록 `6, False`(①로 끝나서 5가 아니라 6), 칸 수 한 줄, 파랑 0 → 21042 / 파랑 도중 멈춰 → 0.2초 뒤 `5, False` / 이어서 빨강 → 47537 → `4, True`
+  - 실수: `!r`을 f-string 밖에, `.json()` 두 번, `response.success`(→ `.result.success`), `add_done_caback` 오타(실행할 때만 AttributeError, goal은 이미 보냄), `cancel_goal_async` 괄호 빠짐, `continue`를 else 안에(goal 없을 때 멈춰가 LLM으로), 복사한 블록에 `continue`(새 goal을 못 보냄)와 불필요한 warn, `__init__`에 `goal_handle = None` 빠짐, 새 검사를 취소 검사 자리에 덮어써서 `is_cancel_requested`가 사라짐 + 안쪽에 공유 값 지우기·`canceled()`가 남음, abort 뒤 result/return 빠짐
+  - commander는 launch에 안 넣는다: launch로 켠 노드는 stdin이 연결되지 않아 `input()`이 안 됨
+  - 남은 개선: 찾을 때 항상 왼쪽 회전(파랑이 오른쪽이면 0이 10초 넘게), Ctrl+C로 commander를 끄면 goal 취소 안 됨
 - VS Code `Over 20 ports have been automatically forwarded`: Gazebo/ROS가 연 포트를 VS Code가 Windows로 연결해 주는 알림. 무시(끄려면 Remote: Auto Forward Ports)
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
@@ -688,9 +721,13 @@
 - send_goal Ctrl+C 후에도 로봇이 계속 감: cancel_callback이 없으면 취소 요청을 거절함 → ACCEPT + while에서 is_cancel_requested 검사
 - 서버 로그 `failed to send response (timeout): client will not receive response`: 취소 후 client(send_goal)가 먼저 꺼짐. 취소는 처리됨
 - 인터페이스 `.action`/`.msg` 빌드 에러: 기본 타입을 대문자(`String`)나 다른 이름(`boolean`)으로 씀 → `string`, `bool`
+- `requests.exceptions.ConnectionError ... Connection refused`: Ollama가 꺼져 있음(`sudo systemctl start ollama`). 잡지 않으면 노드가 죽음 → RequestException으로 잡기
+- `'Future' object has no attribute 'add_done_caback'`: 메서드 이름 오타는 문법 검사(py_compile)를 통과하고 그 줄이 실행될 때만 에러
+- 두 goal의 feedback이 0.5초에 두 줄 / 결과가 두 번: 서버에서 goal 두 개가 같이 돌고 있음. 새 goal 전에 이전 goal 취소 + 서버에서 current_goal 검사
+- `멈춰`를 쳤는데 `진행 중인 goal 없음` 또는 취소 요청이 안 나감: 이전 goal의 결과 콜백이 지금 goal 핸들을 None으로 덮어씀 → `future is self.result_future`일 때만
 
 ## 다음 목표
-- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(다음: 6단계 LLM 노드 = 말("파란 상자로 가 줘")을 `{color: 'blue'}` goal로 바꿔 보내는 액션 client)
+- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(6단계 LLM commander 완료: 말 → Ollama → goal, 멈춰/취소. 다음: 찾기 회전 방향 다듬기(선택) → 7단계 README/GIF)
 - 최종적으로 "자연어 명령 → 로봇 동작" 같은 LLM 연동 미니 프로젝트까지 만들어서 포트폴리오로 쓸 계획 (Physical AI 분야 취업 목표)
 
 ## 참고 사항
