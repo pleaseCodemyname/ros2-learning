@@ -32,14 +32,36 @@ class Commander(Node):
         self.get_logger().info(f"{response.status}, {response.result.success}")
 
 def choose_color(command):
+    # 괄호 안에 문자열을 나란히 쓰면 하나로 이어 붙음(줄 사이에 쉼표 없음). 줄바꿈은 각 줄 끝의 \n
+    prompt = (
+        "You control a robot that drives to a colored box. Read the Korean command and decide what the robot should do.\n"
+        "- Answer the color the robot should go to: red, blue, or green.\n"
+        "- If the command says NOT to go to a color (말고, 아니라, 가지 마), ignore that color.\n"
+        "- If the command means stop or wait (멈춰, 그만, 서, 기다려, 대기), answer stop.\n"
+        "- Only red, blue, and green boxes exist. Any other color (yellow, purple, orange, black, white, ...) -> unknown.\n"
+        "- If the command is not about going to a color at all, answer unknown. Do not guess a color.\n"
+        "Answer with exactly one word: red, blue, green, unknown, or stop.\n"
+        "Examples:\n"
+        "빨간 컵으로 가 -> red\n"
+        "하늘색 공 찾아 -> blue\n"
+        "풀색 상자 -> green\n"
+        "노란 거 -> unknown\n"
+        "주황색 공으로 가 -> unknown\n"
+        "뭐 하고 있어? -> unknown\n"
+        "파란 거 말고 초록 상자로 -> green\n"
+        "빨강 아니라 하늘색 -> blue\n"
+        "그만 -> stop\n"
+        "잠시 대기 -> stop\n"
+        f"Sentence: {command}"
+    )
     body = {
             "model": "llama3.1:8b",
-            "prompt": f"Classify the color in the Korean sentence. Answer with exactly one word: red, blue, green, or unknown.\nExamples:\n빨간 컵으로 가 -> red\n하늘색 공 찾아 -> blue\n풀색 상자 -> green\n노란 거 -> unknown\nSentence: {command}",
+            "prompt": prompt,
             "stream": False,
             "options": {"temperature": 0},
             "format": {
                 "type": "object",
-                "properties": {"color": {"type": "string", "enum": ["red", "blue", "green", "unknown"]}},
+                "properties": {"color": {"type": "string", "enum": ["red", "blue", "green", "unknown", "stop"]}},
                 "required": ["color"]
                         },
             "keep_alive": "30m",
@@ -54,6 +76,17 @@ def choose_color(command):
     except requests.exceptions.RequestException: # RequestException은 requests 에러들의 부모클래스. 그래서 ConnectionError(꺼짐)뿐 아니라 Timeout(30초 초과)도 같이 잡힘
         return None # None = 답이 없다고 돌려주는 값. unknown은 "LLM이 보고 모르겠다고 함"이고, None은 "LLM에 물어보지도 못함"임
 
+# 정지는 안전 기능이라 LLM보다 먼저, 단어가 들어 있기만 하면 stop(Ollama가 꺼져 있어도 동작)
+# "잠깐 멈춰봐", "잠깐 서봐"를 LLM이 blue로 읽은 적이 있음. 다른 뜻의 문장도 stop으로 잡힐 수 있지만, 멈추는 쪽으로 틀리는 게 안전함
+STOP_WORDS = ["멈춰", "그만", "정지", "스톱", "서봐", "서 봐"]
+
+def interpret(command):
+    # 문장 → "red"/"blue"/"green"/"unknown"/"stop", LLM에 못 물어보면 None
+    # main과 tools/eval_commands.py가 같이 쓴다(테스트하는 것과 로봇이 쓰는 것이 같아야 해서)
+    if any(word in command for word in STOP_WORDS):
+        return "stop"
+    return choose_color(command)
+
 def main(args=None):
     rclpy.init(args=args)
     commander = Commander()
@@ -67,19 +100,22 @@ def main(args=None):
     try:
         while True:
             command = input("명령: ")
-            if command == "멈춰":
+            commander.get_logger().info(f"{command}")
+            color = interpret(command) # 정지 단어면 LLM 없이 바로 "stop", 아니면 LLM
+            if color is None:
+                commander.get_logger().error("LLM 연결 실패")
+                continue
+            commander.get_logger().info(f"{color}")
+            if color == "stop":
                 if commander.goal_handle is None:
                     commander.get_logger().warn("진행 중인 goal 없음")
                 else:
                     commander.goal_handle.cancel_goal_async()
                     commander.get_logger().info("취소 요청")
                 continue
-            commander.get_logger().info(f"{command}")
-            color = choose_color(command)
-            if color is None:
-                commander.get_logger().error("LLM 연결 실패")
+            if color == "unknown": # 알아듣지 못한 말 때문에 하던 goal을 취소하지 않도록, goal을 보내지 않고 넘어감
+                commander.get_logger().warn("알 수 없는 명령, 하던 일 계속")
                 continue
-            commander.get_logger().info(f"{color}")
             goal = GoToColor.Goal(color=color) # Goal 객체 만들기
             if commander.goal_handle is not None:        
                 commander.goal_handle.cancel_goal_async()

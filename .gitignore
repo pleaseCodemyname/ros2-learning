@@ -9,3 +9,6 @@ practice*
 
 # Ignore screenshots/images
 *.png
+
+# llm test.json
+llm_test.json
