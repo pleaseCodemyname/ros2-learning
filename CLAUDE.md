@@ -454,7 +454,33 @@
   - 결과(고친 뒤): 초록 도중 파랑 → 초록 `6, False`(①로 끝나서 5가 아니라 6), 칸 수 한 줄, 파랑 0 → 21042 / 파랑 도중 멈춰 → 0.2초 뒤 `5, False` / 이어서 빨강 → 47537 → `4, True`
   - 실수: `!r`을 f-string 밖에, `.json()` 두 번, `response.success`(→ `.result.success`), `add_done_caback` 오타(실행할 때만 AttributeError, goal은 이미 보냄), `cancel_goal_async` 괄호 빠짐, `continue`를 else 안에(goal 없을 때 멈춰가 LLM으로), 복사한 블록에 `continue`(새 goal을 못 보냄)와 불필요한 warn, `__init__`에 `goal_handle = None` 빠짐, 새 검사를 취소 검사 자리에 덮어써서 `is_cancel_requested`가 사라짐 + 안쪽에 공유 값 지우기·`canceled()`가 남음, abort 뒤 result/return 빠짐
   - commander는 launch에 안 넣는다: launch로 켠 노드는 stdin이 연결되지 않아 `input()`이 안 됨
-  - 남은 개선: 찾을 때 항상 왼쪽 회전(파랑이 오른쪽이면 0이 10초 넘게), Ctrl+C로 commander를 끄면 goal 취소 안 됨
+  - 남은 개선: Ctrl+C로 commander를 끄면 goal 취소 안 됨
+- 6단계 다듬기 (2026-11-10, 커밋 18fb86f)
+  - 찾을 때 짧은 쪽으로 돌기: 본 색의 방향(world 기준 yaw)을 기억해 두고, 0개일 때 그쪽으로
+    - odometry bridge: `gz topic -l | grep odom` → `/model/stt_bot/odometry`, `gz topic -i`로 gz.msgs.Odometry, ROS는 `ros2 interface list | grep -i odometry`(grep은 대소문자 구분, `-i`) → nav_msgs/msg/Odometry, 방향 `[`. launch bridge 인자 세 번째, package.xml `<depend>nav_msgs</depend>`(인터페이스 이름의 첫 칸 = 패키지)
+    - echo: `frame_id: stt_bot/odom`, `child_frame_id: stt_bot/base_link`(odom 기준 base_link). `e-14`는 10의 −14승(사실상 0). covariance 36칸은 정확도 칸(시뮬레이션이라 0)
+    - 구독 `create_subscription(Odometry, "/model/stt_bot/odometry", self.odom_callback, 10)`, 칸 경로 `msg.pose.pose.orientation.z`(echo 들여쓰기 = 칸 경로, 바깥 pose는 pose + covariance 묶음)
+    - yaw 공식: `2 * atan2(z, w)`는 −6.28 ~ 6.28이라 6.17 다음에 −6.15(같은 방향이 두 숫자) → `atan2(2*w*z, 1 - 2*z**2)`로 −3.14 ~ 3.14(3.04 → −2.99, turtlesim theta와 같음). 앞에 2를 또 곱하면 두 배
+    - 0.3 rad/s를 보냈는데 실제 약 0.25 rad/s(미끄러짐/마찰로 추정)
+    - `self.color_ranges = {"blue": (lower, upper), ...}`로 if/elif 대신. `color in 딕셔너리`는 키 검사. execute의 색 목록도 이걸로(색 추가는 한 곳만)
+    - 사진 콜백 맨 위(target None 검사보다 위)에서 `for name, (lower, upper) in self.color_ranges.items():` → inRange → nonzero → 20칸 넘으면 `self.seen_yaw[name] = self.yaw + (160 - m_cx) / 320 * 1.047`(가로 320칸 = 시야각 1.047 rad, 왼쪽이면 +). goal이 없을 때 본 것도 기억
+    - 원점 정면 확인: 빨강 0.3876, 파랑 −0.3842(공식 예상 0.387/−0.384, 실제 위치 atan2(0.4, 1.0) = 0.38). 안 보인 초록은 키 자체가 없음
+    - 0개 갈래: `if color in self.seen_yaw:` → `diff = 기억 − yaw` → `diff = atan2(sin(diff), cos(diff))`(−3.14 ~ 3.14로, 짧은 쪽) → diff > 0 왼쪽 / 아니면 오른쪽, 기억 없으면 왼쪽 → publish → return
+    - 결과: yaw −3.02에서 빨강(0.49) → diff −2.78 오른쪽 회전, ±3.14를 넘어도 diff는 끊김 없이 줄어듦 → 오른쪽 끝(cx 319)에서 들어옴 → 도착. 항상 왼쪽이면 3.51 rad. 정리 줄이 없으면 +3.51로 먼 쪽
+    - set_pose로 돌리면 안 됨: odometry는 바퀴가 돈 양을 쌓아서 계산해서, 순간이동은 모른다(yaw 0 그대로). 실제 로봇도 들어 옮기면 odometry가 모름 → 지도·위치 추정(localization)
+    - 한계: 저장하는 건 위치가 아니라 "그때 그 자리에서 본 방향". 로봇이 움직이면 틀려짐(파랑 근처에서 빨강 0.48 → 1.00). 처음엔 기억 기준 500칸이라 가장자리(33, 63칸)에서 cx 갈래와 오래된 기억이 반대를 가리켜 30초 왔다 갔다 → 20칸으로 낮춰 보이는 즉시 갱신
+    - 확인용 로그(yaw, seen, frame.shape)는 `.debug(`로(기본으로 안 보임, 보려면 `--ros-args --log-level debug`)
+    - 실수: `self.subscription`을 두 구독에 같은 이름으로(rclpy가 목록을 따로 들고 있어 동작은 함), 토픽 `/model/stt_bot`(잘림, 조용히 안 옴), `msg.orientation`, `info(self.yaw)`(숫자), echo에 인터페이스 이름, `not in [딕셔너리]`(리스트로 감싸 항상 False → 모든 goal abort), `not in 딕셔너리[color]`, `a not in b in c`(이어진 비교), 빈칸 그대로(SyntaxError), f-string 뒤 `}"`, `if len(xs) == 0:`을 새 if로 덮어씀, else 하나 빠짐(안쪽/바깥 else 짝은 같은 칸 수의 if)
+  - 명령 해석 다듬기
+    - 프롬프트를 괄호 + 문자열 나란히 쓰기로 여러 줄(쉼표 없음, 줄 끝 `\n`, f는 `{command}` 줄만)
+    - "초록색으로 가지 말고 빨간색 상자로" → green(처음 나온 색) → 지시문을 "로봇이 가야 할 색, 가지 말라는 색은 무시"로 + 부정 예시. 테스트 문장을 예시에 그대로 넣지 않는다(외운 건지 구분 불가)
+    - enum에 stop + 규칙/예시. 그런데 "잠깐 멈춰봐", "잠깐 서봐"를 LLM이 blue로 → 멈추라는데 다른 곳으로 출발(위험). temperature 0은 같은 문장만 같은 답, 비슷한 문장은 보장 없음
+    - `STOP_WORDS = ["멈춰", "그만", "정지", "스톱", "서봐", "서 봐"]`, `interpret(command)`: `any(word in command for word in STOP_WORDS)`면 LLM 없이 "stop"(0.0004초, Ollama가 꺼져도 동작), 아니면 choose_color. 정지는 LLM보다 먼저, 멈추는 쪽으로 틀리는 게 안전. LLM의 stop은 목록에 없는 표현용 보조
+    - unknown이면 goal을 안 보내고 warn "하던 일 계속"(전에는 새 goal 전 취소 때문에 모르는 말로 하던 goal이 멈춤). 서버의 색 검사는 다른 client용으로 유지
+    - tools/eval_commands.py: Gazebo 없이 `python3 src/color_seeker/tools/eval_commands.py`, interpret(로봇이 쓰는 것과 같은 함수)로 20문장 정확도. 80%(부정·정지를 넣자 모르는 말에도 색을 지어냄: 노란 상자 → red, 날씨 → blue) → "상자는 세 색뿐, 다른 색·무관한 말은 unknown, 추측 금지" + 예시 → 95%. 남은 실패: 보라색 → blue. 평균 0.18초
+    - 순차 명령("빨간색으로 갔다가 파란색으로 가")은 안 됨: 한 단어만 답하는 format → blue만. 다음에 할 것(배열 format + commander 큐 + 정지 시 큐 비우기)
+  - 커밋: 메시지 안에 큰따옴표가 있으면 `-m "..."`가 거기서 끊겨 나머지가 파일 이름으로(`pathspec ... did not match`) → `git commit -F 파일` 또는 안쪽을 작은따옴표로. 기능 하나 확인하면 바로 커밋(미루면 한 파일에 두 작업이 섞임, launch·package.xml이 빠진 채 지나갈 뻔함)
+  - 이번 구간에서 Claude가 직접 쓴 부분: 프롬프트 여러 줄 정리와 문구, interpret/STOP_WORDS, unknown 블록, eval 스크립트, 마지막 커밋. 나머지(odometry, yaw, seen_yaw, 회전 방향, stop 블록)는 직접 씀
 - VS Code `Over 20 ports have been automatically forwarded`: Gazebo/ROS가 연 포트를 VS Code가 Windows로 연결해 주는 알림. 무시(끄려면 Remote: Auto Forward Ports)
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
@@ -725,9 +751,12 @@
 - `'Future' object has no attribute 'add_done_caback'`: 메서드 이름 오타는 문법 검사(py_compile)를 통과하고 그 줄이 실행될 때만 에러
 - 두 goal의 feedback이 0.5초에 두 줄 / 결과가 두 번: 서버에서 goal 두 개가 같이 돌고 있음. 새 goal 전에 이전 goal 취소 + 서버에서 current_goal 검사
 - `멈춰`를 쳤는데 `진행 중인 goal 없음` 또는 취소 요청이 안 나감: 이전 goal의 결과 콜백이 지금 goal 핸들을 None으로 덮어씀 → `future is self.result_future`일 때만
+- yaw가 6.17 다음 −6.15로 튐: `2 * atan2(z, w)`는 −2π ~ 2π → `atan2(2wz, 1 − 2z²)`. 각도 빼기 결과도 `atan2(sin(d), cos(d))`로 정리
+- 모든 goal이 바로 abort: `x not in [딕셔너리]`(리스트로 감싸면 딕셔너리 자체와 비교). 딕셔너리에 바로 `in`(키 검사)
+- `git commit -m "..."`가 `pathspec ... did not match`: 메시지 안의 큰따옴표에서 끊김 → `git commit -F 파일`
 
 ## 다음 목표
-- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(6단계 LLM commander 완료: 말 → Ollama → goal, 멈춰/취소. 다음: 찾기 회전 방향 다듬기(선택) → 7단계 README/GIF)
+- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(6단계 LLM commander 완료: 말 → Ollama → goal, 멈춰/취소, 방향 기억, 정지 단어, 해석 테스트 95%. 다음: 순차 명령(v1 마지막 기능) → 7단계 README/GIF로 v1 공개 → v2 인식 교체(글로 찾는 검출 모델))
 - 최종적으로 "자연어 명령 → 로봇 동작" 같은 LLM 연동 미니 프로젝트까지 만들어서 포트폴리오로 쓸 계획 (Physical AI 분야 취업 목표)
 
 ## 참고 사항
