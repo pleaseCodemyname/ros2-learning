@@ -29,6 +29,7 @@ class ColorSeeker(Node):
         self.target_color = None
         self.pixel_count = 0
         self.arrived = False
+        self.current_goal = None
 
     def color_seeker_callback(self, msg):
         if self.target_color is None:
@@ -88,9 +89,15 @@ class ColorSeeker(Node):
             
         self.pixel_count = 0
         self.target_color = goal_handle.request.color
+        self.current_goal = goal_handle
         self.arrived = False
         
         while not self.arrived:
+            if self.current_goal is not goal_handle: # 다른 goal이 들어와서 이 goal은 더 이상 지금 goal이 아니라는 뜻, 해당 경우 target_color와 Twist를 건드리지 않고 goal_handle.abort() -> result success False -> return만 함. 공유하는 값은 이제 새 goal 것이니깐, 이렇게하면 client가 취소를 안 보내도 이전 goal이 스스로 끝남
+                goal_handle.abort()
+                result = GoToColor.Result()
+                result.success = False
+                return result
             if goal_handle.is_cancel_requested:
                 cmd = Twist()
                 self.publisher_.publish(cmd)
