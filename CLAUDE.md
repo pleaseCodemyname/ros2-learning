@@ -481,6 +481,17 @@
     - 순차 명령("빨간색으로 갔다가 파란색으로 가")은 안 됨: 한 단어만 답하는 format → blue만. 다음에 할 것(배열 format + commander 큐 + 정지 시 큐 비우기)
   - 커밋: 메시지 안에 큰따옴표가 있으면 `-m "..."`가 거기서 끊겨 나머지가 파일 이름으로(`pathspec ... did not match`) → `git commit -F 파일` 또는 안쪽을 작은따옴표로. 기능 하나 확인하면 바로 커밋(미루면 한 파일에 두 작업이 섞임, launch·package.xml이 빠진 채 지나갈 뻔함)
   - 이번 구간에서 Claude가 직접 쓴 부분: 프롬프트 여러 줄 정리와 문구, interpret/STOP_WORDS, unknown 블록, eval 스크립트, 마지막 커밋. 나머지(odometry, yaw, seen_yaw, 회전 방향, stop 블록)는 직접 씀
+- 순차 명령 (2026-11-11, v1 마지막 기능)
+  - format을 목록으로: `"colors": {"type": "array", "items": {"type": "string", "enum": [...]}}`. items는 목록이 아니라 칸 하나의 규칙(딕셔너리), 모든 칸에 적용. choose_color와 interpret 둘 다 목록을 돌려줌(정지 단어도 `['stop']`, 받는 쪽이 모양을 따지지 않게)
+  - 프롬프트 예시 오른쪽을 `['red']`로. 큰따옴표 문자열 안의 `"`는 문자열을 닫아버림(SyntaxError) → 안쪽은 작은따옴표. 프롬프트는 모델이 읽는 글이고 실제 모양은 format이 JSON으로 정함
+  - `send_color(self, color)` 메서드: goal 보내는 곳이 main과 get_result_callback 두 곳이 돼서 옮김(commander. → self.)
+  - 대기열 `self.queue`(`__init__`에 빈 목록): main은 `commander.queue = colors[1:]`(적어 두기, 새 명령마다 덮어씀) → `send_color(colors[0])`. get_result_callback은 맨 위에서 `response = future.result()` → `future is self.result_future`이고 `response.result.success`이고 `if self.queue:`면 `pop(0)`으로 꺼내 send_color. 취소/abort로 끝나면 다음 색으로 안 감. stop 블록에서 `queue = []`
+  - 결과: `['red', 'blue']` → 빨강 `4, True` → 0.002초 뒤 파랑 goal 시작(칸 수 0이 2.5초, 돌며 찾기) → 파랑 `4, True` → 대기열 비어서 끝
+  - 검사는 `"stop" in colors`(찾을 것 in 목록). `colors == "stop"`은 목록과 글자라 항상 False, `colors in ["stop"]`은 목록 통째로를 찾아서 항상 False. `['red', 'stop']`이면 멈춤, `['red', 'unknown']`이면 아무것도 안 보냄
+  - eval: 기대값을 목록으로 + 순서 4문장, `{str(expected):<18}`(칸 맞춤은 글자만). 목록 `==`는 순서까지 비교
+    - 88%: 부정 문장이 `['green', 'red']`(가지 말라는 곳에 먼저 감, 목록이 되니 나온 색을 전부 나열) → 부정 규칙을 "leave that color out of the list completely"로 → 92%(22/24). 보라색은 이제 맞음
+    - 남은 실패는 둘 다 바다색(`['green']`, `['blue', 'green']`, 청록으로 읽음). 이 문장에 맞춘 프롬프트는 안 넣고 알려진 한계로 README에. 예시에 테스트와 같은 구조를 넣지 않는다
+  - 실수: `items`에 목록, `color`/`colors` 이름 섞임(py_compile 통과, 실행 때 NameError), `colors[1:]`을 send_color로 보냄(→ 대기열에 `=`), `send_color` 결과를 `=`로 받음(return 없어서 None), `self.queue = []`를 결과 콜백 안에(매번 지워짐), `pop()`(마지막 칸), `pop([0])`, 꺼낸 값 버림, `self.queue != ''`(목록과 글자 비교, 항상 True), `if response:`(객체는 항상 True), `colcon build ... & source`(`&`는 백그라운드, `&&`가 성공 후 실행)
 - VS Code `Over 20 ports have been automatically forwarded`: Gazebo/ROS가 연 포트를 VS Code가 Windows로 연결해 주는 알림. 무시(끄려면 Remote: Auto Forward Ports)
 
 - 노드 파일 이름 정리: publisher_, 클래스 이름은 노드 이름을 대문자로 이어 쓴 것(ImageViewer, GrayConverter), main의 변수 이름은 노드 이름과 같게
@@ -756,7 +767,7 @@
 - `git commit -m "..."`가 `pathspec ... did not match`: 메시지 안의 큰따옴표에서 끊김 → `git commit -F 파일`
 
 ## 다음 목표
-- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(6단계 LLM commander 완료: 말 → Ollama → goal, 멈춰/취소, 방향 기억, 정지 단어, 해석 테스트 95%. 다음: 순차 명령(v1 마지막 기능) → 7단계 README/GIF로 v1 공개 → v2 인식 교체(글로 찾는 검출 모델))
+- OpenCV 연동, URDF+RViz, Gazebo 시뮬레이션까지 진행 완료 → color_seeker 프로젝트 진행 중(6단계 LLM commander 완료: 말 → Ollama → goal, 멈춰/취소, 방향 기억, 정지 단어, 해석 테스트 95%, 순차 명령(대기열) 92%. 다음: 7단계 README/GIF로 v1 공개 → v2 인식 교체(글로 찾는 검출 모델))
 - 최종적으로 "자연어 명령 → 로봇 동작" 같은 LLM 연동 미니 프로젝트까지 만들어서 포트폴리오로 쓸 계획 (Physical AI 분야 취업 목표)
 
 ## 참고 사항
