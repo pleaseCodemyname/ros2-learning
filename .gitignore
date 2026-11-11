@@ -11,4 +11,7 @@ practice*
 *.png
 
 # llm test.json
-llm_test.jsonCLAUDE.md
+llm_test.json
+
+# 개인 학습 노트(로컬 전용)
+CLAUDE.md
