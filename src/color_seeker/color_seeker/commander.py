@@ -2,9 +2,11 @@ import rclpy
 import requests
 import json
 import threading
+import time
 from rclpy.node import Node
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.action import ActionClient
+from rclpy.signals import SignalHandlerOptions
 from color_seeker_interfaces.action import GoToColor
 
 class Commander(Node):
@@ -102,9 +104,12 @@ def interpret(command):
     return choose_color(command)
 
 def main(args=None):
-    rclpy.init(args=args)
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     commander = Commander()
-    threading.Thread(target=rclpy.spin, args=(commander,), daemon=True).start() # target에는 실행할 함수를 괄호없이 넘김. args는 그 함수에 넘길 인자(튜플이라 쉼표 필요). daemon=True는 메인이 끝나면 이 스레드도 같이 끝나게 해줌
+    executor = SingleThreadedExecutor()
+    executor.add_node(commander)
+    spin_thread = threading.Thread(target=executor.spin, daemon=True)
+    spin_thread.start() 
     commander.get_logger().info("LLM 준비 중...")
     warmup = choose_color("빨간 거")
     if warmup is None:
@@ -136,6 +141,18 @@ def main(args=None):
     except(KeyboardInterrupt,ExternalShutdownException):
         pass
     finally:
+        if commander.goal_handle is not None:
+            cancel_future = commander.goal_handle.cancel_goal_async()
+            start_time = time.time()
+            while not cancel_future.done() and time.time() - start_time < 1.0: # time.time() = 지금 잰 시간, start_time = while 전에 잰 시간
+                time.sleep(0.05)
+            if cancel_future.done():
+                commander.get_logger().info("종료: goal 취소 응답 받음")
+            else:
+                commander.get_logger().warn("종료: 1초 동안 취소 응답 없음")
+        commander.queue = []
+        executor.shutdown() # spin 루프를 멈추라고 알림
+        spin_thread.join(timeout=1.0) # 그 스레드가 실제로 끝날 때까지 최대 1초 기다림
         commander.destroy_node()
         rclpy.try_shutdown()
 

@@ -66,6 +66,7 @@ int32 pixel_count # feedback: 화면 안 목표 색 칸 수(가까울수록 커�
   - 서버: `current_goal is not goal_handle`이면 공유 상태를 건드리지 않고 스스로 abort
   - client: `future is self.result_future`일 때만 goal 핸들을 지움
 - **순차 명령**: 첫 색만 보내고 나머지는 대기열에 둔다. 결과가 **성공**일 때만 다음 색을 꺼내므로, 취소·abort되면 이어서 출발하지 않는다. 정지하면 대기열을 비운다
+- **commander를 꺼도 로봇이 멈추게**: 처음엔 Ctrl+C로 commander를 끄면 서버의 goal이 살아서 로봇이 계속 갔다. rclpy 기본 Ctrl+C 처리기는 `finally`에 닿기 전에 rclpy를 먼저 꺼 버려서(`context is invalid`) 취소를 보낼 수 없었다 → `SignalHandlerOptions.NO`로 끄는 시점을 직접 정하고, 취소 → 응답 대기(최대 1초) → executor shutdown → 스레드 join → 노드 정리 순서로 종료. 순서가 틀리면(spin 스레드가 도는 중에 노드 정리) 10번 중 8번 `Aborted`
 - **첫 명령 지연**: Ollama는 5분 동안 안 쓰면 모델을 내린다. 시작할 때 웜업 요청 + `keep_alive 30m` → 첫 명령 5.7초 → 0.47초
 
 ## 명령 해석 평가
@@ -123,7 +124,6 @@ python3 src/color_seeker/tools/eval_commands.py
 - **거리를 모른다**: 화면 속 칸 수로 가까움을 추정한다. 물체 크기나 해상도가 바뀌면 `stop_count`를 다시 정해야 한다
 - **방향 기억은 위치가 아니라 "그때 그 자리에서 본 방향"**이라 로봇이 많이 움직이면 틀려진다. odometry는 바퀴 회전을 쌓아서 계산하므로 미끄러짐이나 순간이동을 모른다
 - 장애물 회피가 없다
-- commander를 Ctrl+C로 끄면 진행 중인 goal이 취소되지 않는다
 
 ## 다음 (v2)
 
