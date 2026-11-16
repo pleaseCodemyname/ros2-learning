@@ -77,6 +77,9 @@ class ColorSeeker(Node):
                 diff = self.seen_yaw[color] - self.yaw # 물체 방향 - 지금 방향 = 얼마나 더 돌아야 하나?
                 diff = math.atan2(math.sin(diff), math.cos(diff)) # 빼기 결과는 -6.28 ~ 6.28이 될 수 있음. 이 줄이 그걸 -3.14 ~ 3.14로 바꿔줌. 같은 방향을 가리키는 각도 중 가장 짧은 쪽으로 정리하는 것.
                 self.get_logger().info(f"diff: {diff}", throttle_duration_sec=1.0)
+                if abs(diff) < 0.1:
+                    self.get_logger().warn("기억한 방향에 없음, 다시 찾기")
+                    del self.seen_yaw[color]
                 if diff > 0:
                     cmd.angular.z = turn_speed
                 else:
