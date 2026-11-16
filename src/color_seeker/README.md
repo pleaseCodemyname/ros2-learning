@@ -1,6 +1,6 @@
 # color_seeker
 
-**말로 시키면 그 색 물체를 찾아가는 로봇** (ROS 2 Jazzy + Gazebo Harmonic + 로컬 LLM)
+**말로 시키면 그 색 물체를 찾아가는 로봇** (ROS 2 Jazzy + Gazebo Harmonic + 로컬 STT + 로컬 LLM)
 
 > "빨간색으로 갔다가 파란색으로 가" → LLM이 `["red", "blue"]`로 해석 → 로봇이 카메라로 빨간 상자를 찾아가 멈추고, 이어서 파란 상자로 간다
 
@@ -10,15 +10,17 @@
 
 ## 무엇을 하나
 
-- 키보드로 한국어 명령을 입력하면, 로컬 LLM(Ollama, llama3.1:8b)이 가야 할 색의 **목록**으로 바꾼다
+- 마이크로 말하거나 키보드로 한국어 명령을 입력하면, 로컬 STT(faster-whisper)가 글자로 바꾸고 로컬 LLM(Ollama, llama3.1:8b)이 가야 할 색의 **목록**으로 바꾼다. 인터넷 없이 PC 한 대에서 전부 돈다
 - 색 하나하나를 ROS 2 **액션** goal로 보내고, 로봇은 카메라 영상만으로 그 색을 찾아 회전·직진·정지한다
 - "멈춰", "그만"은 LLM을 거치지 않고 바로 취소한다. 모르는 말이면 하던 일을 계속한다
-- 화면 밖에 있는 색도 전에 본 방향을 기억해 두었다가 **짧은 쪽으로** 돌아서 찾는다
+- 화면 밖에 있는 색도 전에 본 방향을 기억해 두었다가 **짧은 쪽으로** 돌아서 찾는다. 기억한 방향에 없으면 기억을 지우고 다시 찾는다
 
 ## 구조
 
 ```mermaid
 flowchart LR
+    M[마이크] -->|parecord 16kHz wav| W[faster-whisper<br/>large-v3-turbo GPU]
+    W -->|글자| C
     U[키보드 입력] --> C[commander<br/>액션 client]
     C <-->|HTTP JSON| L[Ollama<br/>llama3.1:8b]
     C -->|go_to_color goal<br/>feedback / result| S[color_seeker<br/>액션 server]
@@ -31,7 +33,7 @@ flowchart LR
 
 | 노드 | 역할 | 입력 | 출력 |
 |---|---|---|---|
-| `commander` | 문장 → 색 목록 → goal을 순서대로 | 키보드, Ollama 응답 | `go_to_color` goal / 취소 |
+| `commander` | (음성 → 글자) → 문장 → 색 목록 → goal을 순서대로 | 마이크 또는 키보드, Ollama 응답 | `go_to_color` goal / 취소 |
 | `color_seeker` | 색 찾기 + 주행 | `/camera/image`, `/model/stt_bot/odometry`, goal | `/cmd_vel`, feedback(칸 수), result |
 
 액션 인터페이스 (`color_seeker_interfaces/action/GoToColor`)
@@ -54,7 +56,9 @@ int32 pixel_count # feedback: 화면 안 목표 색 칸 수(가까울수록 커�
 4. 덩어리 칸 수가 `stop_count`(49000, 화면의 약 64%) 넘으면 → 정지, 도착
 5. 그 외에는 `cx`로 판단: 왼쪽(< 140)이면 왼쪽 회전, 오른쪽(> 180)이면 오른쪽 회전, 가운데면 직진
 
-**방향 기억**: 사진마다 세 색을 모두 검사해서, 보이는 색은 `현재 yaw + (160 − cx) / 320 × 시야각`을 world 기준 방향으로 저장한다. 목표가 화면 밖이면 `atan2(sin d, cos d)`로 정리한 각도 차의 부호를 보고 짧은 쪽으로 돈다(뒤쪽 빨강: 항상 왼쪽이면 3.51 rad, 지금은 2.78 rad).
+**방향 기억**: 사진마다 세 색을 모두 검사해서, 보이는 색은 `현재 yaw + (160 − cx) / 320 × 시야각`을 world 기준 방향으로 저장한다. 목표가 화면 밖이면 `atan2(sin d, cos d)`로 정리한 각도 차의 부호를 보고 짧은 쪽으로 돈다(뒤쪽 빨강: 항상 왼쪽이면 3.51 rad, 지금은 2.78 rad). 기억한 방향에 도착했는데(각도 차 0.1 rad 미만) 여전히 안 보이면 그 기억을 지우고 한 방향으로 돌며 다시 찾는다.
+
+**음성 입력**: `명령:`에서 Enter만 치면 `parecord`로 녹음을 시작하고, 다시 Enter를 치면 녹음을 끝내 faster-whisper(`large-v3-turbo`, GPU, `int8_float16`)로 글자로 바꾼다. 그 글자는 키보드로 친 문장과 똑같이 아래 해석으로 간다. 짧은 명령 하나에 약 0.2초.
 
 **명령 해석**: Ollama `/api/generate`에 JSON schema(`format`)로 `{"colors": [enum...]}`만 답하게 강제하고, `temperature 0`으로 같은 문장엔 같은 답이 나오게 했다.
 
@@ -70,6 +74,10 @@ int32 pixel_count # feedback: 화면 안 목표 색 칸 수(가까울수록 커�
 - **commander를 꺼도 로봇이 멈추게**: 처음엔 Ctrl+C로 commander를 끄면 서버의 goal이 살아서 로봇이 계속 갔다. rclpy 기본 Ctrl+C 처리기는 `finally`에 닿기 전에 rclpy를 먼저 꺼 버려서(`context is invalid`) 취소를 보낼 수 없었다 → `SignalHandlerOptions.NO`로 끄는 시점을 직접 정하고, 취소 → 응답 대기(최대 1초) → executor shutdown → 스레드 join → 노드 정리 순서로 종료. 순서가 틀리면(spin 스레드가 도는 중에 노드 정리) 10번 중 8번 `Aborted`
 - **같은 색 물체가 둘일 때**: 처음엔 마스크 전체 칸의 평균 `cx`를 썼다. 빨간 상자 둘을 좌우 대칭으로 두면 cx가 159.5(정확히 가운데)가 되어 로봇이 두 상자 사이 빈 곳으로 직진했고, 둘 다 화면 밖으로 놓친 뒤 우연히 하나를 다시 찾았다 → 덩어리로 나눠 가장 큰 것만 따라가게 바꿈. 8950칸과 8958칸 중 큰 쪽으로 돌기 시작하면 그 상자가 계속 커져서 선택이 바뀌지 않는다
 - **첫 명령 지연**: Ollama는 5분 동안 안 쓰면 모델을 내린다. 시작할 때 웜업 요청 + `keep_alive 30m` → 첫 명령 5.7초 → 0.47초
+- **STT는 로컬로**: 클라우드 스트리밍 STT도 생각했지만, 로봇 명령은 2~3초짜리 짧은 말이라 말이 끝난 뒤 0.2초면 체감 차이가 거의 없다. 로컬로 두면 인터넷·API 키·요금이 필요 없고 음성이 밖으로 나가지 않는다. Whisper도 시작할 때 1초 무음으로 웜업한다(첫 변환 0.52초 → 0.18초). faster-whisper의 결과는 꺼낼 때 계산되므로 웜업도 `list(segments)`로 끝까지 꺼낸다
+- **무음 환각**: 아무 말 없이 녹음을 끝내자 Whisper가 `다음 영상에서 만나요.`를 지어냈다(영상 자막으로 학습해서 생기는 현상). `vad_filter=True`로 목소리가 있는 구간만 남기자 빈 글자가 되었고, 빈 글자면 goal을 보내지 않는다
+- **키보드도 남겨 둠**: Enter만 치면 음성, 글자를 치면 키보드. 마이크가 없거나 테스트할 때, 급하게 멈출 때 쓴다
+- **오래된 방향 기억**: 파랑 → 빨강 → 파랑 순서로 시키면, 세 번째 파랑에서 로봇이 제자리에서 좌우로 떨기만 했다. 기억한 파랑 방향은 파랑 근처에서 본 것이라 빨강 앞에서는 그쪽에 파랑이 없었고, 각도 차가 0 근처에서 +/−를 오가며 왼쪽·오른쪽 명령을 번갈아 보냈다. 안 보이니 기억을 고칠 기회도 없었다 → 기억한 방향에 왔는데 안 보이면 기억을 지운다. 같은 순서에서 약 22초 만에 도착
 
 ## 명령 해석 평가
 
@@ -94,8 +102,18 @@ int32 pixel_count # feedback: 화면 안 목표 색 칸 수(가까울수록 커�
 환경: Ubuntu 24.04 (WSL2), ROS 2 Jazzy, Gazebo Harmonic, Ollama
 
 ```bash
-sudo apt install ros-jazzy-ros-gz ros-jazzy-cv-bridge
+sudo apt install ros-jazzy-ros-gz ros-jazzy-cv-bridge pulseaudio-utils python3-pip
 ollama pull llama3.1:8b
+
+# STT (시스템 파이썬에 설치: ros2 run이 /usr/bin/python3를 쓰기 때문)
+#  - numpy<2: cv_bridge가 numpy 1.x 기준으로 빌드되어 있음
+#  - av==16.1.0: faster-whisper 1.2.1이 넘기는 metadata_errors 인자가 av 19에서 없어짐
+#  - cuBLAS, cuDNN: GPU로 돌릴 때 필요한 CUDA 라이브러리
+pip install --user --break-system-packages faster-whisper==1.2.1 "numpy<2" nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
+pip install --user --break-system-packages "av==16.1.0" --only-binary=:all:
+
+# ~/.bashrc 맨 아래 (ROS source 줄 아래, 기존 값 뒤에 붙임)
+export LD_LIBRARY_PATH=$HOME/.local/lib/python3.12/site-packages/nvidia/cublas/lib:$HOME/.local/lib/python3.12/site-packages/nvidia/cudnn/lib:$LD_LIBRARY_PATH
 
 cd ~/ros2_ws
 colcon build --packages-select color_seeker_interfaces color_seeker
@@ -106,6 +124,17 @@ ros2 launch color_seeker color_seeker_launch.py
 
 # 터미널 2: 명령 입력 (launch로 켜면 stdin이 연결되지 않아 따로 실행)
 ros2 run color_seeker commander
+```
+
+`명령 (Enter만 치면 음성):`에서
+- Enter → 말하기 → Enter: 음성 명령
+- 글자 입력 → Enter: 키보드 명령
+
+마이크 확인 (WSL2는 WSLg를 통해 Windows 마이크가 `RDPSource`로 보임):
+```bash
+pactl list sources short
+parecord --channels=1 --rate=16000 ~/mic_test.wav   # 말하고 Ctrl+C
+paplay ~/mic_test.wav
 ```
 
 명령 없이 액션만 보내기:
@@ -125,22 +154,25 @@ python3 src/color_seeker/tools/eval_commands.py
 - **색 범위는 이 조명에서 잰 값**이다. 조명이 바뀌면 다시 재야 한다
 - 방향 기억은 아직 그 색 칸 전체의 평균으로 잰다. 같은 색 물체가 둘이면 기억한 방향이 둘 사이를 가리킨다(주행은 가장 큰 덩어리를 따라가서 영향은 화면 밖에서 찾을 때만)
 - **거리를 모른다**: 화면 속 칸 수로 가까움을 추정한다. 물체 크기나 해상도가 바뀌면 `stop_count`를 다시 정해야 한다
-- **방향 기억은 위치가 아니라 "그때 그 자리에서 본 방향"**이라 로봇이 많이 움직이면 틀려진다. odometry는 바퀴 회전을 쌓아서 계산하므로 미끄러짐이나 순간이동을 모른다
+- **방향 기억은 위치가 아니라 "그때 그 자리에서 본 방향"**이라 로봇이 많이 움직이면 틀려진다. 틀린 기억은 지우고 다시 찾지만, 그때는 항상 왼쪽으로 돌아서 먼 쪽으로 돌 수 있다(위 예에서 17초). odometry는 바퀴 회전을 쌓아서 계산하므로 미끄러짐이나 순간이동을 모른다
+- **음성 "멈춰"는 키보드보다 느리다**: Enter → 말하기 → Enter라서 녹음 시작부터 취소까지 약 2초. 로봇이 이미 도착한 뒤에 취소가 갈 때도 있다. 급하면 키보드로 `멈춰`
+- **잘못 들은 말을 LLM이 또 해석한다**: "파란 거로 가"를 Whisper가 `타란 타란 거로가.`로 듣자 LLM이 색이 없는 문장에서 `["red", "blue", "green"]`을 지어냈다. 오류가 STT와 LLM 두 단계에서 쌓인다
 - 장애물 회피가 없다
 
 ## 다음 (v2)
 
 - 색 범위 → 글로 찾는 검출 모델(Grounding DINO, OWL-ViT 등): "빨간 컵"을 색이 아니라 물체로 찾기. 노드 구조(사진 → 위치 → cx → 판단 → `/cmd_vel`)는 그대로 두고 마스크 부분만 바꾼다
 - 거리: 깊이 카메라나 라이다로 칸 수 대신 실제 거리로 정지
-- 음성 입력(STT)
+- 음성: 두 번째 Enter 대신 VAD로 말이 끝나면 자동으로 녹음 끝내기, Whisper에 자주 쓰는 단어(빨간, 파란, 초록, 멈춰) 힌트 주기, 잘못 들었을 때 되묻기
 
 ## 파일
 
 ```
 color_seeker/
 ├── color_seeker/color_seeker.py   # 액션 서버 + 색 찾기 + 주행
-├── color_seeker/commander.py      # 명령 입력 + LLM 해석 + 액션 client
+├── color_seeker/commander.py      # 명령 입력(음성/키보드) + LLM 해석 + 액션 client
 ├── tools/eval_commands.py         # 명령 해석 평가
+├── tools/stt_test.py              # 마이크 녹음 → 글자 (ROS 없이)
 ├── launch/color_seeker_launch.py  # Gazebo, 로봇/상자 생성, bridge, 노드
 ├── urdf/robot.urdf
 └── worlds/                        # world.sdf (sensors 시스템 포함), 상자 3개
