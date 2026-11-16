@@ -3,11 +3,15 @@ import requests
 import json
 import threading
 import time
+import subprocess
+import signal
+import numpy as np
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.action import ActionClient
 from rclpy.signals import SignalHandlerOptions
 from color_seeker_interfaces.action import GoToColor
+from faster_whisper import WhisperModel
 
 class Commander(Node):
     def __init__(self):
@@ -96,6 +100,17 @@ def choose_color(command):
 # "잠깐 멈춰봐", "잠깐 서봐"를 LLM이 blue로 읽은 적이 있음. 다른 뜻의 문장도 stop으로 잡힐 수 있지만, 멈추는 쪽으로 틀리는 게 안전함
 STOP_WORDS = ["멈춰", "그만", "정지", "스톱", "서봐", "서 봐"]
 
+def listen(model):
+    proc = subprocess.Popen(["parecord", "--channels=1", "--rate=16000", "/tmp/cmd.wav"]) # 녹음 시작: parecord를 프로그램으로 켜기 (/tmp/cmd.wav로 저장)
+    input("다 말했으면 Enter")
+    proc.send_signal(signal.SIGINT) # 녹음 끝: parecord에 Ctrl + C 신호 보내기 -> 끝날 때까지 기다리기
+    proc.wait() # parecord가 파일을 다 쓰고 꺼질 때까지 기다림. 이게 없으면 파일이 덜 써진 상태로 transcribe할 수 있음
+    segments, info = model.transcribe("/tmp/cmd.wav", language="ko", vad_filter=True)    
+    text = ""
+    for i in segments:
+        text += i.text
+    return text.strip()
+
 def interpret(command):
     # 문장 → ["red"]/["blue"]/["green"]/["unknown"]/["stop"], LLM에 못 물어보면 None
     # main과 tools/eval_commands.py가 같이 쓴다(테스트하는 것과 로봇이 쓰는 것이 같아야 해서)
@@ -116,9 +131,21 @@ def main(args=None):
         commander.get_logger().warn("LLM 연결 실패, 명령할 때 다시시도")
     else:
         commander.get_logger().info("LLM 준비 완료")
+    commander.get_logger().info("STT 준비 중")
+    # warmup은 transcribe를 부르되, 파일 경로 자리에 1초짜리 무음을 넣기
+    model = WhisperModel("large-v3-turbo", device="cuda", compute_type="int8_float16")
+    segments, info = model.transcribe(np.zeros(16000, dtype=np.float32), language="ko") # 0이 16000칸 = 16000Hz로 1초 = 무음 1초. Whisper는 소리를 float32 숫자로 받아서 dtype을 맞춤(OpenCV에서 uint8을 맞춘 것과 같은 이유)
+    list(segments) # segments는 꺼낼 때 계산하는데, listen에서는 for가 꺼냈는데, 웜업은 글자가 필요 없으니 list()로 한 번에 다 꺼내기만 함. 이 줄이 없으면 실제 계산을 안해서 웜업이 안됨
+    commander.get_logger().info("STT 준비 완료")
     try:
         while True:
-            command = input("명령: ")
+            command = input("명령 (Enter만 치면 음성): ")
+            if command == "":
+                command = listen(model)
+            # 음성 결과가 비었으면
+            if command == "":
+                commander.get_logger().warn("알아들은 말 없음, 하던 일 계속")
+                continue
             commander.get_logger().info(f"{command}")
             colors = interpret(command) # 정지 단어면 LLM 없이 바로 ['stop'], 아니면 LLM
             if colors is None:
