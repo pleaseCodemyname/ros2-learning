@@ -3,6 +3,7 @@ install/
 log/
 __pycache__/
 typings/
+frames_*
 
 # Ignore practical files
 practice*
