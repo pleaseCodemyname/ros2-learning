@@ -20,7 +20,7 @@ from nav_msgs.msg import Odometry
 class ColorSeeker(Node):
     def __init__(self):
         super().__init__('color_seeker')
-        self.subscription = self.create_subscription(Image, '/camera/image',self.color_seeker_callback, 10)
+        self.subscription = self.create_subscription(Image, '/camera/image',self.color_seeker_callback, 1)
         self.odom_subscription = self.create_subscription(Odometry, "/model/stt_bot/odometry", self.odom_callback, 10)
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
         self.bridge = CvBridge()
