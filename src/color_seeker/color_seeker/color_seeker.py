@@ -9,7 +9,7 @@ import time
 import math
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
@@ -20,8 +20,8 @@ from nav_msgs.msg import Odometry
 class ColorSeeker(Node):
     def __init__(self):
         super().__init__('color_seeker')
-        self.subscription = self.create_subscription(Image, '/camera/image',self.color_seeker_callback, 1)
-        self.odom_subscription = self.create_subscription(Odometry, "/model/stt_bot/odometry", self.odom_callback, 10)
+        self.subscription = self.create_subscription(Image, '/camera/image',self.color_seeker_callback, 1, callback_group=MutuallyExclusiveCallbackGroup())
+        self.odom_subscription = self.create_subscription(Odometry, "/model/stt_bot/odometry", self.odom_callback, 10, callback_group=MutuallyExclusiveCallbackGroup())
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
         self.bridge = CvBridge()
         self.action_server = ActionServer(self, GoToColor, "go_to_color", self.execute_callback, callback_group=ReentrantCallbackGroup(), cancel_callback=self.cancel_callback)
@@ -36,8 +36,10 @@ class ColorSeeker(Node):
         self.yaw = 0.0
         self.color_ranges = {"blue": (np.array([60, 0, 0]), np.array([255, 50, 50])), "green": (np.array([0, 60, 0]), np.array([50, 255, 50])), "red": (np.array([0, 0, 60]), np.array([50, 50, 255]),)}
         self.seen_yaw = {}
+        self.target_yaw = None # 0개 갈래와 멈춤 갈래: 각각 publish 전에 self.target_yaw = None 추가 b/c odometry가 예전 방향으로 계속 조종하지 않게 | cx 갈래: 1단계의 지역 변수 target_yaw를 self.target_yaw에 저장. 그 아래 cx로 왼쪽/오른쪽/직진을 정하고 publish하던 부분은 지움. 이제 그 일은 odometry 콜백이 함
 
     def color_seeker_callback(self, msg):
+        capture_yaw = self.yaw # sleep(=검출)동안 로봇이 돌아서 slef.yaw가 바뀌니까, 사진을 받은 순간의 yaw를 지역 변수에 먼저 적어둠. "찍었을 때 yaw"
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8') # msg를 -> Opencv로 바꾸는 함수: imgmsg_to_cv2
         for name, (lower, upper) in self.color_ranges.items(): # items()는 딕셔너리의 (키, 값) 쌍을 하나씩 꺼내줌. 값이 튜플이라 (lower, upper)로 바로 나눠받을 수 있음
             m = cv2.inRange(frame, lower, upper)
@@ -69,6 +71,8 @@ class ColorSeeker(Node):
             biggest = np.argmax(stats[1:, cv2.CC_STAT_AREA]) + 1 # 가장 큰 덩어리 번호 찾기
             area = int(stats[biggest, cv2.CC_STAT_AREA])
             cx = centroids[biggest][0]
+            self.target_yaw = capture_yaw + (160 - cx) / 320 * 1.047
+            self.get_logger().info(f"cx: {cx:.0f}, target_yaw: {self.target_yaw:.2f}", throttle_duration_sec=1.0) # .0f = 소수점 아래 0자리, .2f: 소수점 아래 2자리까지만 보여주는 형식
         self.pixel_count = area # 사진마다 칸 수를 수첩에 적음(지금까지 계산한 칸 수)
         self.get_logger().info(f"{area}", throttle_duration_sec=1.0) # 8950: 로봇 카메라 사진 한 장 안에서 빨간 범위를 통과한 픽셀(칸)수. 가로320칸, 세로 240칸 모두 76800칸(URDF 센서에 적은 <width><height>)
         cmd = Twist()
@@ -86,20 +90,14 @@ class ColorSeeker(Node):
                     cmd.angular.z = -turn_speed
             else:
                 cmd.angular.z = turn_speed # 반시계방향(왼쪽)으로 회전
+            self.target_yaw = None
             self.publisher_.publish(cmd)
             return
         elif area > stop_count: # 빨간 칸 stop_count(기본 49000)초과: 멈춤 | 320 * 240 = 76,800칸(카메라의 절반 이상이 빨간색으로 가득차면)
+            self.target_yaw = None
             self.arrived = True # 멈추는 순간 도착을 표시
             self.publisher_.publish(cmd) # 빨간 칸이 많음 = 아주 가까움: 멈춤
             return
-        self.get_logger().info(f"cx: {cx}", throttle_duration_sec=1.0) # cx: 41.54223(가로 320칸 중 41번 쯤에 위치해있음, 왼쪽 끝)
-        if cx < 140:
-            cmd.angular.z = turn_speed
-        elif cx > 180:
-            cmd.angular.z = -turn_speed
-        else:
-            cmd.linear.x = forward_speed
-        self.publisher_.publish(cmd)
 
     def execute_callback(self, goal_handle):
         if goal_handle.request.color not in self.color_ranges:
@@ -124,6 +122,7 @@ class ColorSeeker(Node):
                 cmd = Twist()
                 self.publisher_.publish(cmd)
                 self.target_color = None
+                self.target_yaw = None
                 goal_handle.canceled()
                 result = GoToColor.Result()
                 result.success = False
@@ -134,6 +133,7 @@ class ColorSeeker(Node):
             time.sleep(0.5)
 
         self.target_color = None
+        self.target_yaw = None
         goal_handle.succeed()
         result = GoToColor.Result()
         result.success = True
@@ -146,6 +146,18 @@ class ColorSeeker(Node):
         z = msg.pose.pose.orientation.z
         w = msg.pose.pose.orientation.w
         self.yaw = math.atan2(2*w*z, 1 - 2*(z**2))
+        if self.target_color is None or self.target_yaw is None:
+            return
+        diff = self.target_yaw - self.yaw
+        diff = math.atan2(math.sin(diff), math.cos(diff))
+        cmd = Twist()
+        if diff > 0.065:
+            cmd.angular.z = self.get_parameter("turn_speed").value
+        elif diff < -0.065:
+            cmd.angular.z = -self.get_parameter("turn_speed").value
+        else:
+            cmd.linear.x = self.get_parameter("forward_speed").value
+        self.publisher_.publish(cmd)            
         self.get_logger().debug(f"yaw: {self.yaw}", throttle_duration_sec=1.0)
 
 
