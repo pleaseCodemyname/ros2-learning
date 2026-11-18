@@ -39,6 +39,8 @@ class ColorSeeker(Node):
         self.yaw = 0.0
         self.color_ranges = {"blue": (np.array([60, 0, 0]), np.array([255, 50, 50])), "green": (np.array([0, 60, 0]), np.array([50, 255, 50])), "red": (np.array([0, 0, 60]), np.array([50, 50, 255]),)}
         self.target_texts = {"blue": "blue box", "green": "green box", "red": "red box"}
+        self.text_to_name = {text: name for name, text in self.target_texts.items()}
+        self.get_logger().debug(f"{self.text_to_name}")
         self.seen_yaw = {}
         self.target_yaw = None # 0개 갈래와 멈춤 갈래: 각각 publish 전에 self.target_yaw = None 추가 b/c odometry가 예전 방향으로 계속 조종하지 않게 | cx 갈래: 1단계의 지역 변수 target_yaw를 self.target_yaw에 저장. 그 아래 cx로 왼쪽/오른쪽/직진을 정하고 publish하던 부분은 지움. 이제 그 일은 odometry 콜백이 함
         self.detector = self.get_parameter("detector").value
@@ -59,13 +61,33 @@ class ColorSeeker(Node):
     def color_seeker_callback(self, msg):
         capture_yaw = self.yaw # sleep(=검출)동안 로봇이 돌아서 slef.yaw가 바뀌니까, 사진을 받은 순간의 yaw를 지역 변수에 먼저 적어둠. "찍었을 때 yaw"
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8') # msg를 -> Opencv로 바꾸는 함수: imgmsg_to_cv2
-        for name, (lower, upper) in self.color_ranges.items(): # items()는 딕셔너리의 (키, 값) 쌍을 하나씩 꺼내줌. 값이 튜플이라 (lower, upper)로 바로 나눠받을 수 있음
-            m = cv2.inRange(frame, lower, upper)
-            m_ys, m_xs = np.nonzero(m)
-            if len(m_xs) > 20: # 기억 기준을 낮춤: cx 갈래는 1칸만 보여도 동작하는데 기억은 500칸이어야 갱신돼서, 가장자리에서 둘이 반대 방향을 가리켰음
-                m_cx = m_xs.mean() # 물체가 가로 몇 번째 칸에 있나
-                direction = self.yaw + (160 - m_cx ) / 320 * 1.047 # 물체가 얼마나 벗어났는지 계산하는 자리
-                self.seen_yaw[name] = direction
+        if self.detector == "owlv2":
+            texts = list(self.target_texts.values())
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            inputs = self.processor(text=[texts], images=rgb, return_tensors="pt").to("cuda")
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+            results = self.processor.post_process_grounded_object_detection(
+                outputs, threshold=0.05, target_sizes=[(240, 320)], text_labels=[texts])[0]
+            found = {}
+            for score, label, box in zip(results["scores"], results["text_labels"], results["boxes"]):
+                name = self.text_to_name[label]
+                score = score.item() # 텐서 -> 숫자
+                if name not in found or score > found[name][0]:
+                    found[name] = (score, box)
+            self.get_logger().debug(f"found: {found}", throttle_duration_sec=1.0)
+            for name, (score, box) in found.items():
+                xmin, ymin, xmax, ymax = box.tolist()
+                cx = (xmin + xmax) / 2
+                self.seen_yaw[name] = capture_yaw + (160 - cx) / 320 * 1.047
+        else:
+            for name, (lower, upper) in self.color_ranges.items(): # items()는 딕셔너리의 (키, 값) 쌍을 하나씩 꺼내줌. 값이 튜플이라 (lower, upper)로 바로 나눠받을 수 있음
+                m = cv2.inRange(frame, lower, upper)
+                m_ys, m_xs = np.nonzero(m)
+                if len(m_xs) > 20: # 기억 기준을 낮춤: cx 갈래는 1칸만 보여도 동작하는데 기억은 500칸이어야 갱신돼서, 가장자리에서 둘이 반대 방향을 가리켰음
+                    m_cx = m_xs.mean() # 물체가 가로 몇 번째 칸에 있나
+                    direction = capture_yaw + (160 - m_cx) / 320 * 1.047 # 물체가 얼마나 벗어났는지 계산하는 자리
+                    self.seen_yaw[name] = direction
         self.get_logger().debug(f"seen: {self.seen_yaw}", throttle_duration_sec=1.0)
         if self.target_color is None or self.arrived == True:
             return
@@ -80,31 +102,15 @@ class ColorSeeker(Node):
             self.publisher_.publish(cmd)
             return 
         if self.detector == "owlv2":
-            text = self.target_texts[color]
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            inputs = self.processor(text=[[text]], images=rgb, return_tensors="pt").to("cuda")
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-            results = self.processor.post_process_grounded_object_detection(
-                outputs, threshold=0.05, target_sizes=[(240, 320)], text_labels=[[text]])[0]
-            target = text
-            best = None
-            best_score = 0
-            for score, label, box in zip(results["scores"], results["text_labels"], results["boxes"]): # zip(a, b, c): 목록 3개를 같은 순번끼리 하나로 묶어서 꺼내줌. for name, (lower, upper) in self.color_ranges.items(): 처럼 한 번에 여러 이름으로 받음
-                if label != target:
-                    continue # 건너뛰기(이번 차례 끝, 다시 for문으로 감)
-                score = score.item()
-                if score > best_score: # 점수 비교: score는 텐서라 score.item()으로 숫자로 바꿔서 비교하고 저장
-                    best_score = score
-                    best = box
-            if best is None:
+            if color not in found:
                 area = 0
             else:
-                xmin, ymin, xmax, ymax = best.tolist()
+                score, box = found[color]
+                xmin, ymin, xmax, ymax = box.tolist()
                 cx = (xmin + xmax) / 2
                 area = int(xmax - xmin) * int(ymax - ymin)
                 self.target_yaw = capture_yaw + (160 - cx) / 320 * 1.047
-                self.get_logger().info(f"cx: {cx:.0f}, target_yaw: {self.target_yaw:.2f}", throttle_duration_sec=1.0)
+                self.get_logger().info(f"cx: {cx:.0f}, target_yaw: {self.target_yaw:.2f}", throttle_duration_sec=1.0) # .0f = 소수점 아래 0자리, .2f: 소수점 아래 2자리까지만 보여주는 형식
         else:
             lower, upper = self.color_ranges[color]
             mask = cv2.inRange(frame, lower, upper)
