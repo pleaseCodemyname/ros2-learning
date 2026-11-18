@@ -38,6 +38,7 @@ class ColorSeeker(Node):
         self.current_goal = None
         self.yaw = 0.0
         self.color_ranges = {"blue": (np.array([60, 0, 0]), np.array([255, 50, 50])), "green": (np.array([0, 60, 0]), np.array([50, 255, 50])), "red": (np.array([0, 0, 60]), np.array([50, 50, 255]),)}
+        self.target_texts = {"blue": "blue box", "green": "green box", "red": "red box"}
         self.seen_yaw = {}
         self.target_yaw = None # 0개 갈래와 멈춤 갈래: 각각 publish 전에 self.target_yaw = None 추가 b/c odometry가 예전 방향으로 계속 조종하지 않게 | cx 갈래: 1단계의 지역 변수 target_yaw를 self.target_yaw에 저장. 그 아래 cx로 왼쪽/오른쪽/직진을 정하고 publish하던 부분은 지움. 이제 그 일은 odometry 콜백이 함
         self.detector = self.get_parameter("detector").value
@@ -51,6 +52,9 @@ class ColorSeeker(Node):
             with torch.no_grad():
                 self.model(**inputs)
             self.get_logger().info(f"OWLv2 준비: {time.perf_counter() - start:.2f}초")
+            self.targets = self.target_texts
+        else:
+            self.targets = self.color_ranges
 
     def color_seeker_callback(self, msg):
         capture_yaw = self.yaw # sleep(=검출)동안 로봇이 돌아서 slef.yaw가 바뀌니까, 사진을 받은 순간의 yaw를 지역 변수에 먼저 적어둠. "찍었을 때 yaw"
@@ -70,7 +74,7 @@ class ColorSeeker(Node):
         forward_speed = self.get_parameter("forward_speed").value
         color = self.target_color # color = self.get_parameter("color").value 이제 색은 goal로 오니까 이 줄을 수첩에서 읽도록 바꾸기
         self.get_logger().debug(f"{frame.shape}", throttle_duration_sec=1.0)
-        if color not in self.color_ranges:
+        if color not in self.targets:
             self.get_logger().warn(f"{color} 파랑, 초록, 빨강에 맞지 않는 색이 들어왔습니다.", throttle_duration_sec=1.0)
             cmd = Twist()
             self.publisher_.publish(cmd)
@@ -114,7 +118,7 @@ class ColorSeeker(Node):
             return
 
     def execute_callback(self, goal_handle):
-        if goal_handle.request.color not in self.color_ranges:
+        if goal_handle.request.color not in self.targets:
             self.get_logger().warn(f"{goal_handle.request.color}: red, blue, green 중 하나여야 합니다.")
             goal_handle.abort()
             result = GoToColor.Result()
