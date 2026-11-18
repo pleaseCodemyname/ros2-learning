@@ -41,6 +41,7 @@ class ColorSeeker(Node):
         self.target_texts = {"blue": "blue box", "green": "green box", "red": "red box"}
         self.text_to_name = {text: name for name, text in self.target_texts.items()}
         self.get_logger().debug(f"{self.text_to_name}")
+        self.last_time = None # None인 이유: 첫 콜백에는 "직전"이 없어서 빼기를 할 수 없음
         self.seen_yaw = {}
         self.target_yaw = None # 0개 갈래와 멈춤 갈래: 각각 publish 전에 self.target_yaw = None 추가 b/c odometry가 예전 방향으로 계속 조종하지 않게 | cx 갈래: 1단계의 지역 변수 target_yaw를 self.target_yaw에 저장. 그 아래 cx로 왼쪽/오른쪽/직진을 정하고 publish하던 부분은 지움. 이제 그 일은 odometry 콜백이 함
         self.detector = self.get_parameter("detector").value
@@ -59,6 +60,10 @@ class ColorSeeker(Node):
             self.targets = self.color_ranges
 
     def color_seeker_callback(self, msg):
+        now = time.perf_counter()
+        if self.last_time is not None:
+            self.get_logger().debug(f"간격: {now - self.last_time:.2f}")
+        self.last_time = now
         capture_yaw = self.yaw # sleep(=검출)동안 로봇이 돌아서 slef.yaw가 바뀌니까, 사진을 받은 순간의 yaw를 지역 변수에 먼저 적어둠. "찍었을 때 yaw"
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8') # msg를 -> Opencv로 바꾸는 함수: imgmsg_to_cv2
         if self.detector == "owlv2":
