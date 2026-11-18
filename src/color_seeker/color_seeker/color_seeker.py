@@ -67,7 +67,7 @@ class ColorSeeker(Node):
                 direction = self.yaw + (160 - m_cx ) / 320 * 1.047 # 물체가 얼마나 벗어났는지 계산하는 자리
                 self.seen_yaw[name] = direction
         self.get_logger().debug(f"seen: {self.seen_yaw}", throttle_duration_sec=1.0)
-        if self.target_color is None:
+        if self.target_color is None or self.arrived == True:
             return
         stop_count = self.get_parameter("stop_count").value
         turn_speed = self.get_parameter("turn_speed").value
@@ -79,18 +79,45 @@ class ColorSeeker(Node):
             cmd = Twist()
             self.publisher_.publish(cmd)
             return 
-        lower, upper = self.color_ranges[color]
-        mask = cv2.inRange(frame, lower, upper)
-        num, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
-        self.get_logger().debug(f"num: {num}, stats: {stats}, centroids: {centroids}", throttle_duration_sec=1.0)
-        if num == 1:
-            area = 0
+        if self.detector == "owlv2":
+            text = self.target_texts[color]
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            inputs = self.processor(text=[[text]], images=rgb, return_tensors="pt").to("cuda")
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+            results = self.processor.post_process_grounded_object_detection(
+                outputs, threshold=0.05, target_sizes=[(240, 320)], text_labels=[[text]])[0]
+            target = text
+            best = None
+            best_score = 0
+            for score, label, box in zip(results["scores"], results["text_labels"], results["boxes"]): # zip(a, b, c): 목록 3개를 같은 순번끼리 하나로 묶어서 꺼내줌. for name, (lower, upper) in self.color_ranges.items(): 처럼 한 번에 여러 이름으로 받음
+                if label != target:
+                    continue # 건너뛰기(이번 차례 끝, 다시 for문으로 감)
+                score = score.item()
+                if score > best_score: # 점수 비교: score는 텐서라 score.item()으로 숫자로 바꿔서 비교하고 저장
+                    best_score = score
+                    best = box
+            if best is None:
+                area = 0
+            else:
+                xmin, ymin, xmax, ymax = best.tolist()
+                cx = (xmin + xmax) / 2
+                area = int(xmax - xmin) * int(ymax - ymin)
+                self.target_yaw = capture_yaw + (160 - cx) / 320 * 1.047
+                self.get_logger().info(f"cx: {cx:.0f}, target_yaw: {self.target_yaw:.2f}", throttle_duration_sec=1.0)
         else:
-            biggest = np.argmax(stats[1:, cv2.CC_STAT_AREA]) + 1 # 가장 큰 덩어리 번호 찾기
-            area = int(stats[biggest, cv2.CC_STAT_AREA])
-            cx = centroids[biggest][0]
-            self.target_yaw = capture_yaw + (160 - cx) / 320 * 1.047
-            self.get_logger().info(f"cx: {cx:.0f}, target_yaw: {self.target_yaw:.2f}", throttle_duration_sec=1.0) # .0f = 소수점 아래 0자리, .2f: 소수점 아래 2자리까지만 보여주는 형식
+            lower, upper = self.color_ranges[color]
+            mask = cv2.inRange(frame, lower, upper)
+            num, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
+            self.get_logger().debug(f"num: {num}, stats: {stats}, centroids: {centroids}", throttle_duration_sec=1.0)
+            if num == 1:
+                area = 0
+            else:
+                biggest = np.argmax(stats[1:, cv2.CC_STAT_AREA]) + 1 # 가장 큰 덩어리 번호 찾기
+                area = int(stats[biggest, cv2.CC_STAT_AREA])
+                cx = centroids[biggest][0]
+                self.target_yaw = capture_yaw + (160 - cx) / 320 * 1.047
+                self.get_logger().info(f"cx: {cx:.0f}, target_yaw: {self.target_yaw:.2f}", throttle_duration_sec=1.0) # .0f = 소수점 아래 0자리, .2f: 소수점 아래 2자리까지만 보여주는 형식
         self.pixel_count = area # 사진마다 칸 수를 수첩에 적음(지금까지 계산한 칸 수)
         self.get_logger().info(f"{area}", throttle_duration_sec=1.0) # 8950: 로봇 카메라 사진 한 장 안에서 빨간 범위를 통과한 픽셀(칸)수. 가로320칸, 세로 240칸 모두 76800칸(URDF 센서에 적은 <width><height>)
         cmd = Twist()
@@ -150,6 +177,8 @@ class ColorSeeker(Node):
             goal_handle.publish_feedback(feedback)
             time.sleep(0.5)
 
+        cmd = Twist()
+        self.publisher_.publish(cmd)
         self.target_color = None
         self.target_yaw = None
         goal_handle.succeed()
