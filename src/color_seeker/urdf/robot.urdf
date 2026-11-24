@@ -168,6 +168,8 @@
             <wheel_separation>0.35</wheel_separation>  <!--두 바퀴 가운데 사이 거리: -0.175에서 0.175니깐 0.175+0.175=0.35-->
             <wheel_radius>0.1</wheel_radius> <!-- cylinder radius에 넣은 값-->
             <topic>cmd_vel</topic>
+            <frame_id>odom</frame_id>
+            <child_frame_id>base_link</child_frame_id>
         </plugin>
         <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher"></plugin>
     </gazebo>
