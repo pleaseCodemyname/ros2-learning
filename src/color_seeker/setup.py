@@ -17,7 +17,9 @@ setup(
         ('share/color_seeker/worlds',
             ['worlds/world.sdf', 'worlds/red_box.sdf', 'worlds/blue_box.sdf', 'worlds/green_box.sdf']),
         ('share/color_seeker/config',
-            ['config/slam_params.yaml'])
+            ['config/slam_params.yaml', 'config/slam.rviz']),
+        ('share/color_seeker/maps',
+            ['maps/room.yaml', 'maps/room.pgm'])
     ],
     install_requires=['setuptools'],
     zip_safe=True,
