@@ -24,7 +24,7 @@ class ColorSeeker(Node):
     def __init__(self):
         super().__init__('color_seeker')
         self.subscription = self.create_subscription(Image, '/camera/image',self.color_seeker_callback, 1, callback_group=MutuallyExclusiveCallbackGroup())
-        self.odom_subscription = self.create_subscription(Odometry, "/model/stt_bot/odometry", self.odom_callback, 10, callback_group=MutuallyExclusiveCallbackGroup())
+        self.odom_subscription = self.create_subscription(Odometry, "/odom", self.odom_callback, 10, callback_group=MutuallyExclusiveCallbackGroup())
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
         self.bridge = CvBridge()
         self.action_server = ActionServer(self, GoToColor, "go_to_color", self.execute_callback, callback_group=ReentrantCallbackGroup(), cancel_callback=self.cancel_callback)

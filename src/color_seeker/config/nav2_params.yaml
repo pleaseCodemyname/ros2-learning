@@ -95,8 +95,15 @@ controller_server:
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.25
     FollowPath:
-      plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 56
+      plugin: "nav2_rotation_shim_controller::RotationShimController"   # 바꿈
+      primary_controller: "nav2_mppi_controller::MPPIController"       # 추가: 회전 후 넘길 controller
+      angular_dist_threshold: 0.785        # 추가: 45° 넘게 어긋나면 먼저 제자리 회전
+      forward_sampling_distance: 0.5       # 추가: 경로에서 0.5m 앞 점을 보고 방향 판단
+      rotate_to_heading_angular_vel: 1.0   # 추가: 제자리 회전 속도(rad/s), spin과 같게
+      max_angular_accel: 3.2               # 추가
+      simulate_ahead_time: 1.0             # 추가: 돌기 전에 1초 앞까지 충돌 검사
+      rotate_to_goal_heading: true         # 추가: 도착 방향 맞추기도 직접
+      time_steps: 56                       # 여기부터 기존 MPPI 설정 그대로
       model_dt: 0.05
       batch_size: 2000
       ax_max: 3.0
