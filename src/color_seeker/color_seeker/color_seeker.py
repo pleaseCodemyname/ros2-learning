@@ -14,12 +14,13 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image, LaserScan
 from cv_bridge import CvBridge
-from rclpy.action import ActionServer, CancelResponse
+from rclpy.action import ActionServer, CancelResponse, ActionClient
 from color_seeker_interfaces.action import GoToColor
 from nav_msgs.msg import Odometry
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
 from rcl_interfaces.msg import ParameterDescriptor
 from tf2_ros import Buffer, TransformListener, TransformException
+from nav2_msgs.action import NavigateToPose
 
 class ColorSeeker(Node):
     def __init__(self):
@@ -28,6 +29,7 @@ class ColorSeeker(Node):
         self.odom_subscription = self.create_subscription(Odometry, "/odom", self.odom_callback, 10, callback_group=MutuallyExclusiveCallbackGroup())
         self.scan_subscription = self.create_subscription(LaserScan, "/scan", self.scan_callback, 10, callback_group=MutuallyExclusiveCallbackGroup())
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose', callback_group=ReentrantCallbackGroup())
         self.bridge = CvBridge()
         self.action_server = ActionServer(self, GoToColor, "go_to_color", self.execute_callback, callback_group=ReentrantCallbackGroup(), cancel_callback=self.cancel_callback)
         self.declare_parameter("stop_count", 49000)
@@ -183,6 +185,8 @@ class ColorSeeker(Node):
             result.success = False
             return result
             
+        status = self.nav_to(0.0, -0.9, 0.0)
+        self.get_logger().info(f"Nav2 결과: {status}")
         self.pixel_count = 0
         self.target_color = goal_handle.request.color
         self.current_goal = goal_handle
@@ -254,6 +258,29 @@ class ColorSeeker(Node):
         w = t.transform.rotation.w
         yaw = math.atan2(2*w*z, 1 - 2*(z**2))
         return (x, y, yaw)
+
+    def nav_to(self, x, y, yaw):
+        if not self.nav_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().warn("Nav2 서버 없음")
+            return None
+        goal = NavigateToPose.Goal() # frame_id: "map", position: x, y
+        goal.pose.header.frame_id = "map"
+        goal.pose.pose.position.x = x
+        goal.pose.pose.position.y = y
+        goal.pose.pose.orientation.z = math.sin(yaw/2)
+        goal.pose.pose.orientation.w = math.cos(yaw/2)
+        future = self.nav_client.send_goal_async(goal)
+        while not future.done():
+            time.sleep(0.1)
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().warn("Nav2가 goal 거절")
+            return None
+        result_future = goal_handle.get_result_async()
+        while not result_future.done():
+            time.sleep(0.1)
+        return result_future.result().status
+
 
 def main(args=None):
     rclpy.init(args=args)
