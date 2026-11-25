@@ -12,7 +12,7 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, LaserScan
 from cv_bridge import CvBridge
 from rclpy.action import ActionServer, CancelResponse
 from color_seeker_interfaces.action import GoToColor
@@ -25,6 +25,7 @@ class ColorSeeker(Node):
         super().__init__('color_seeker')
         self.subscription = self.create_subscription(Image, '/camera/image',self.color_seeker_callback, 1, callback_group=MutuallyExclusiveCallbackGroup())
         self.odom_subscription = self.create_subscription(Odometry, "/odom", self.odom_callback, 10, callback_group=MutuallyExclusiveCallbackGroup())
+        self.scan_subscription = self.create_subscription(LaserScan, "/scan", self.scan_callback, 10, callback_group=MutuallyExclusiveCallbackGroup())
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
         self.bridge = CvBridge()
         self.action_server = ActionServer(self, GoToColor, "go_to_color", self.execute_callback, callback_group=ReentrantCallbackGroup(), cancel_callback=self.cancel_callback)
@@ -36,6 +37,7 @@ class ColorSeeker(Node):
         self.pixel_count = 0
         self.arrived = False
         self.current_goal = None
+        self.scan = None
         self.yaw = 0.0
         self.color_ranges = {"blue": (np.array([60, 0, 0]), np.array([255, 50, 50])), "green": (np.array([0, 60, 0]), np.array([50, 255, 50])), "red": (np.array([0, 0, 60]), np.array([50, 50, 255]),)}
         self.target_texts = {"blue": "blue box", "green": "green box", "red": "red box"}
@@ -127,6 +129,11 @@ class ColorSeeker(Node):
                 biggest = np.argmax(stats[1:, cv2.CC_STAT_AREA]) + 1 # 가장 큰 덩어리 번호 찾기
                 area = int(stats[biggest, cv2.CC_STAT_AREA])
                 cx = centroids[biggest][0]
+                angle = (160 -cx) /320 * 1.047
+                if self.scan is not None:
+                    space_num = round((angle - self.scan.angle_min)/ self.scan.angle_increment)
+                    distance = self.scan.ranges[space_num]
+                    self.get_logger().info(f"cx: {cx}, angle: {angle}, space_num: {space_num}, distance: {distance}", throttle_duration_sec=1.0)
                 self.target_yaw = capture_yaw + (160 - cx) / 320 * 1.047
                 self.get_logger().info(f"cx: {cx:.0f}, target_yaw: {self.target_yaw:.2f}", throttle_duration_sec=1.0) # .0f = 소수점 아래 0자리, .2f: 소수점 아래 2자리까지만 보여주는 형식
         self.pixel_count = area # 사진마다 칸 수를 수첩에 적음(지금까지 계산한 칸 수)
@@ -217,6 +224,9 @@ class ColorSeeker(Node):
             cmd.linear.x = self.get_parameter("forward_speed").value
         self.publisher_.publish(cmd)            
         self.get_logger().debug(f"yaw: {self.yaw}", throttle_duration_sec=1.0)
+
+    def scan_callback(self, msg):
+        self.scan = msg
 
 
 def main(args=None):
