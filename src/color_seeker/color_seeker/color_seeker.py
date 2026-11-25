@@ -19,6 +19,7 @@ from color_seeker_interfaces.action import GoToColor
 from nav_msgs.msg import Odometry
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
 from rcl_interfaces.msg import ParameterDescriptor
+from tf2_ros import Buffer, TransformListener, TransformException
 
 class ColorSeeker(Node):
     def __init__(self):
@@ -33,6 +34,8 @@ class ColorSeeker(Node):
         self.declare_parameter("turn_speed", 0.3)
         self.declare_parameter("forward_speed", 0.2)
         self.declare_parameter("detector", "color", ParameterDescriptor(read_only=True)) # param set 거절됨
+        self.tf_buffer = Buffer() # Buffer는 들어온 tf를 쌓아두는 곳
+        self.tf_listener = TransformListener(self.tf_buffer, self) # TransformListener는 /tf를 구독해서 Buffer에 넣어 줌
         self.target_color = None
         self.pixel_count = 0
         self.arrived = False
@@ -70,8 +73,7 @@ class ColorSeeker(Node):
             self.get_logger().debug(f"간격: {now - self.last_time:.2f}")
         self.last_time = now
         capture_yaw = self.yaw # sleep(=검출)동안 로봇이 돌아서 slef.yaw가 바뀌니까, 사진을 받은 순간의 yaw를 지역 변수에 먼저 적어둠. "찍었을 때 yaw"
-        capture_x = self.x
-        capture_y = self.y
+        map_pose = self.get_map_pose()
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8') # msg를 -> Opencv로 바꾸는 함수: imgmsg_to_cv2
         if self.detector == "owlv2":
             texts = list(self.target_texts.values())
@@ -139,9 +141,10 @@ class ColorSeeker(Node):
                     space_num = round((angle - self.scan.angle_min)/ self.scan.angle_increment)
                     distance = self.scan.ranges[space_num]
                     self.get_logger().info(f"cx: {cx}, angle: {angle}, space_num: {space_num}, distance: {distance}", throttle_duration_sec=1.0)
-                    if math.isfinite(distance):
-                        box_x = capture_x + distance * math.cos(capture_yaw + angle)
-                        box_y = capture_y + distance * math.sin(capture_yaw + angle)
+                    if math.isfinite(distance) and map_pose is not None:
+                        map_x, map_y, map_yaw = map_pose
+                        box_x = map_x + distance * math.cos(map_yaw + angle)
+                        box_y = map_y + distance * math.sin(map_yaw + angle)
                         self.seen_pos[color] = (box_x, box_y)
                         self.get_logger().info(f"{color} 위치: ({box_x:.2f}, {box_y:.2f})", throttle_duration_sec=1.0)
                 self.target_yaw = capture_yaw + (160 - cx) / 320 * 1.047
@@ -240,6 +243,17 @@ class ColorSeeker(Node):
     def scan_callback(self, msg):
         self.scan = msg
 
+    def get_map_pose(self):
+        try:
+            t = self.tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time())
+        except TransformException:
+            return None
+        x = t.transform.translation.x
+        y = t.transform.translation.y
+        z = t.transform.rotation.z
+        w = t.transform.rotation.w
+        yaw = math.atan2(2*w*z, 1 - 2*(z**2))
+        return (x, y, yaw)
 
 def main(args=None):
     rclpy.init(args=args)
