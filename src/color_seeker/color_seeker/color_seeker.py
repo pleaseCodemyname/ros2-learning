@@ -56,6 +56,7 @@ class ColorSeeker(Node):
         self.seen_yaw = {}
         self.target_yaw = None # 0개 갈래와 멈춤 갈래: 각각 publish 전에 self.target_yaw = None 추가 b/c odometry가 예전 방향으로 계속 조종하지 않게 | cx 갈래: 1단계의 지역 변수 target_yaw를 self.target_yaw에 저장. 그 아래 cx로 왼쪽/오른쪽/직진을 정하고 publish하던 부분은 지움. 이제 그 일은 odometry 콜백이 함
         self.detector = self.get_parameter("detector").value
+        self.nav_distance = 0.0
         if self.detector == "owlv2":
             start = time.perf_counter()
             name = "google/owlv2-base-patch16-ensemble"
@@ -244,6 +245,10 @@ class ColorSeeker(Node):
                     return result
             feedback = GoToColor.Feedback()
             feedback.pixel_count = self.pixel_count
+            if self.pixel_count == 0:
+                feedback.state = "searching"
+            else:
+                feedback.state = "approaching"
             goal_handle.publish_feedback(feedback)
             time.sleep(0.5)
 
@@ -298,13 +303,14 @@ class ColorSeeker(Node):
         if not self.nav_client.wait_for_server(timeout_sec=1.0):
             self.get_logger().warn("Nav2 서버 없음")
             return None
+        self.nav_distance = 0.0
         goal = NavigateToPose.Goal() # frame_id: "map", position: x, y
         goal.pose.header.frame_id = "map"
         goal.pose.pose.position.x = x
         goal.pose.pose.position.y = y
         goal.pose.pose.orientation.z = math.sin(yaw/2)
         goal.pose.pose.orientation.w = math.cos(yaw/2)
-        future = self.nav_client.send_goal_async(goal)
+        future = self.nav_client.send_goal_async(goal, feedback_callback=self.nav_feedback_callback)
         while not future.done():
             time.sleep(0.1)
         nav_handle = future.result()
@@ -312,14 +318,24 @@ class ColorSeeker(Node):
             self.get_logger().warn("Nav2가 goal 거절")
             return None
         result_future = nav_handle.get_result_async()
+        last_feedback = time.perf_counter()
         while not result_future.done():
             if goal_handle.is_cancel_requested or self.current_goal is not goal_handle:
                 self.get_logger().warn("Nav2 이동 중 취소")
                 nav_handle.cancel_goal_async() # Nav2에게 "그만 가"라고 지시
                 return None
+            if time.perf_counter() - last_feedback > 0.5:
+                feedback = GoToColor.Feedback()
+                feedback.pixel_count = self.pixel_count
+                feedback.state = "navigating"
+                feedback.distance_remaining = self.nav_distance
+                goal_handle.publish_feedback(feedback)
+                last_feedback = time.perf_counter()
             time.sleep(0.1)
         return result_future.result().status
 
+    def nav_feedback_callback(self, feedback_msg):
+        self.nav_distance = feedback_msg.feedback.distance_remaining
 
 def main(args=None):
     rclpy.init(args=args)
