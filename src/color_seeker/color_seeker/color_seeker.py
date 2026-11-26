@@ -185,8 +185,17 @@ class ColorSeeker(Node):
             result.success = False
             return result
             
-        status = self.nav_to(0.0, -0.9, 0.0)
-        self.get_logger().info(f"Nav2 결과: {status}")
+        color = goal_handle.request.color
+        map_pose = self.get_map_pose()
+        if color in self.seen_pos and map_pose is not None:
+            rx, ry, _ = map_pose
+            bx, by = self.seen_pos[color]
+            yaw = math.atan2(by - ry, bx- rx)
+            gx = bx - 0.6 * math.cos(yaw)
+            gy = by -0.6 * math.sin(yaw) 
+            self.get_logger().info(f"Nav2로 {color} 앞 ({gx:.2f}, {gy:.2f}), yaw {yaw:.2f}")
+            status = self.nav_to(gx, gy, yaw)
+            self.get_logger().info(f"Nav2 결과: {status}")
         self.pixel_count = 0
         self.target_color = goal_handle.request.color
         self.current_goal = goal_handle
