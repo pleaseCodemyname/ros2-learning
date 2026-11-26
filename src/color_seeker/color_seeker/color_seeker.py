@@ -43,6 +43,7 @@ class ColorSeeker(Node):
         self.arrived = False
         self.current_goal = None
         self.scan = None
+        self.search_points = [(4.0, 0.0)]
         self.yaw = 0.0
         self.x = 0.0
         self.y = 0.0
@@ -200,7 +201,8 @@ class ColorSeeker(Node):
         self.target_color = goal_handle.request.color
         self.current_goal = goal_handle
         self.arrived = False
-        
+        search_start = time.perf_counter()
+        points = list(self.search_points)
         while not self.arrived:
             if self.current_goal is not goal_handle: # 다른 goal이 들어와서 이 goal은 더 이상 지금 goal이 아니라는 뜻, 해당 경우 target_color와 Twist를 건드리지 않고 goal_handle.abort() -> result success False -> return만 함. 공유하는 값은 이제 새 goal 것이니깐, 이렇게하면 client가 취소를 안 보내도 이전 goal이 스스로 끝남
                 goal_handle.abort()
@@ -216,6 +218,28 @@ class ColorSeeker(Node):
                 result = GoToColor.Result()
                 result.success = False
                 return result
+            if color not in self.seen_pos and time.perf_counter() - search_start > 30.0:
+                if points:
+                    x, y = points.pop(0)
+                    self.target_color = None
+                    self.target_yaw = None
+                    cmd = Twist()
+                    self.publisher_.publish(cmd)
+                    self.get_logger().info(f"{color} 못 찾음, ({x}, {y})로 둘러보러 감")
+                    status = self.nav_to(x, y, 0.0)
+                    self.get_logger().info(f"Nav2 결과: {status}")
+                    self.target_color = color
+                    search_start = time.perf_counter()
+                else:
+                    self.get_logger().warn(f"{color}: 둘러보기 지점을 다 돌았는데 없음")
+                    cmd = Twist()
+                    self.target_color = None
+                    self.target_yaw = None
+                    self.publisher_.publish(cmd)
+                    goal_handle.abort()
+                    result = GoToColor.Result()
+                    result.success = False
+                    return result
             feedback = GoToColor.Feedback()
             feedback.pixel_count = self.pixel_count
             goal_handle.publish_feedback(feedback)
