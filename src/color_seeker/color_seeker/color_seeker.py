@@ -36,6 +36,8 @@ class ColorSeeker(Node):
         self.declare_parameter("turn_speed", 0.3)
         self.declare_parameter("forward_speed", 0.2)
         self.declare_parameter("detector", "color", ParameterDescriptor(read_only=True)) # param set 거절됨
+        self.declare_parameter("search_turn_speed", 1.0)
+        self.declare_parameter("search_time", 10.0)
         self.tf_buffer = Buffer() # Buffer는 들어온 tf를 쌓아두는 곳
         self.tf_listener = TransformListener(self.tf_buffer, self) # TransformListener는 /tf를 구독해서 Buffer에 넣어 줌
         self.target_color = None
@@ -112,6 +114,7 @@ class ColorSeeker(Node):
             return
         stop_count = self.get_parameter("stop_count").value
         turn_speed = self.get_parameter("turn_speed").value
+        search_turn_speed = self.get_parameter("search_turn_speed").value
         forward_speed = self.get_parameter("forward_speed").value
         color = self.target_color # color = self.get_parameter("color").value 이제 색은 goal로 오니까 이 줄을 수첩에서 읽도록 바꾸기
         self.get_logger().debug(f"{frame.shape}", throttle_duration_sec=1.0)
@@ -156,11 +159,11 @@ class ColorSeeker(Node):
                     self.get_logger().warn("기억한 방향에 없음, 다시 찾기")
                     del self.seen_yaw[color]
                 if diff > 0:
-                    cmd.angular.z = turn_speed
+                    cmd.angular.z = search_turn_speed
                 else:
-                    cmd.angular.z = -turn_speed
+                    cmd.angular.z = -search_turn_speed
             else:
-                cmd.angular.z = turn_speed # 반시계방향(왼쪽)으로 회전
+                cmd.angular.z = search_turn_speed # 반시계방향(왼쪽)으로 회전
             self.target_yaw = None
             self.publisher_.publish(cmd)
             return
@@ -194,6 +197,7 @@ class ColorSeeker(Node):
         self.pixel_count = 0
         self.target_color = goal_handle.request.color
         self.arrived = False
+        search_time = self.get_parameter("search_time").value
         search_start = time.perf_counter()
         points = list(self.search_points)
         while not self.arrived:
@@ -211,7 +215,7 @@ class ColorSeeker(Node):
                 result = GoToColor.Result()
                 result.success = False
                 return result
-            if color not in self.seen_pos and time.perf_counter() - search_start > 30.0:
+            if color not in self.seen_pos and time.perf_counter() - search_start > search_time:
                 if points:
                     x, y = points.pop(0)
                     self.target_color = None
