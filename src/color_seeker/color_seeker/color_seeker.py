@@ -106,6 +106,7 @@ class ColorSeeker(Node):
                     m_cx = m_xs.mean() # 물체가 가로 몇 번째 칸에 있나
                     direction = capture_yaw + (160 - m_cx) / 320 * 1.047 # 물체가 얼마나 벗어났는지 계산하는 자리
                     self.seen_yaw[name] = direction
+                    self.save_pos(name, m_cx, map_pose)
         self.get_logger().debug(f"seen: {self.seen_yaw}", throttle_duration_sec=1.0)
         if self.target_color is None or self.arrived == True:
             return
@@ -140,17 +141,7 @@ class ColorSeeker(Node):
                 biggest = np.argmax(stats[1:, cv2.CC_STAT_AREA]) + 1 # 가장 큰 덩어리 번호 찾기
                 area = int(stats[biggest, cv2.CC_STAT_AREA])
                 cx = centroids[biggest][0]
-                angle = (160 -cx) /320 * 1.047
-                if self.scan is not None:
-                    space_num = round((angle - self.scan.angle_min)/ self.scan.angle_increment)
-                    distance = self.scan.ranges[space_num]
-                    self.get_logger().info(f"cx: {cx}, angle: {angle}, space_num: {space_num}, distance: {distance}", throttle_duration_sec=1.0)
-                    if math.isfinite(distance) and map_pose is not None:
-                        map_x, map_y, map_yaw = map_pose
-                        box_x = map_x + distance * math.cos(map_yaw + angle)
-                        box_y = map_y + distance * math.sin(map_yaw + angle)
-                        self.seen_pos[color] = (box_x, box_y)
-                        self.get_logger().info(f"{color} 위치: ({box_x:.2f}, {box_y:.2f})", throttle_duration_sec=1.0)
+                self.save_pos(color, cx, map_pose)
                 self.target_yaw = capture_yaw + (160 - cx) / 320 * 1.047
                 self.get_logger().info(f"cx: {cx:.0f}, target_yaw: {self.target_yaw:.2f}", throttle_duration_sec=1.0) # .0f = 소수점 아래 0자리, .2f: 소수점 아래 2자리까지만 보여주는 형식
         self.pixel_count = area # 사진마다 칸 수를 수첩에 적음(지금까지 계산한 칸 수)
@@ -188,6 +179,7 @@ class ColorSeeker(Node):
             return result
             
         color = goal_handle.request.color
+        self.get_logger().info(f"기억: {self.seen_pos}")
         self.current_goal = goal_handle
         map_pose = self.get_map_pose()
         if color in self.seen_pos and map_pose is not None:
@@ -287,6 +279,19 @@ class ColorSeeker(Node):
     def scan_callback(self, msg):
         self.scan = msg
 
+    def save_pos(self, name, cx, map_pose):
+        angle = (160 -cx) /320 * 1.047
+        if self.scan is not None:
+            space_num = round((angle - self.scan.angle_min)/ self.scan.angle_increment)
+            distance = self.scan.ranges[space_num]
+            self.get_logger().debug(f"cx: {cx}, angle: {angle}, space_num: {space_num}, distance: {distance}", throttle_duration_sec=1.0)
+            if math.isfinite(distance) and map_pose is not None:
+                map_x, map_y, map_yaw = map_pose
+                box_x = map_x + distance * math.cos(map_yaw + angle)
+                box_y = map_y + distance * math.sin(map_yaw + angle)
+                self.seen_pos[name] = (box_x, box_y)
+                self.get_logger().debug(f"{name} 위치: ({box_x:.2f}, {box_y:.2f})", throttle_duration_sec=1.0)
+
     def get_map_pose(self):
         try:
             t = self.tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time())
@@ -336,6 +341,7 @@ class ColorSeeker(Node):
 
     def nav_feedback_callback(self, feedback_msg):
         self.nav_distance = feedback_msg.feedback.distance_remaining
+
 
 def main(args=None):
     rclpy.init(args=args)
