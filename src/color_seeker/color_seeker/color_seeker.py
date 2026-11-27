@@ -180,20 +180,11 @@ class ColorSeeker(Node):
             result = GoToColor.Result()
             result.success = False
             return result
-            
         color = goal_handle.request.color
         self.get_logger().info(f"기억: {self.seen_pos}")
         self.current_goal = goal_handle
-        map_pose = self.get_map_pose()
-        if color in self.seen_pos and map_pose is not None:
-            rx, ry, _ = map_pose
-            bx, by = self.seen_pos[color]
-            yaw = math.atan2(by - ry, bx- rx)
-            gx = bx - 0.6 * math.cos(yaw)
-            gy = by -0.6 * math.sin(yaw) 
-            self.get_logger().info(f"Nav2로 {color} 앞 ({gx:.2f}, {gy:.2f}), yaw {yaw:.2f}")
-            status = self.nav_to(gx, gy, yaw, goal_handle)
-            self.get_logger().info(f"Nav2 결과: {status}")
+        if color in self.seen_pos:
+            self.nav_to_box(color, goal_handle)
         self.pixel_count = 0
         self.target_color = goal_handle.request.color
         self.arrived = False
@@ -223,8 +214,10 @@ class ColorSeeker(Node):
                     cmd = Twist()
                     self.publisher_.publish(cmd)
                     self.get_logger().info(f"{color} 못 찾음, ({x}, {y})로 둘러보러 감")
-                    status = self.nav_to(x, y, 0.0, goal_handle)
+                    status = self.nav_to(x, y, 0.0, goal_handle, color)
                     self.get_logger().info(f"Nav2 결과: {status}")
+                    if status == "seen":
+                        status = self.nav_to_box(color, goal_handle)
                     if status is None:
                         continue
                     self.target_color = color
@@ -308,7 +301,7 @@ class ColorSeeker(Node):
         yaw = math.atan2(2*w*z, 1 - 2*(z**2))
         return (x, y, yaw)
 
-    def nav_to(self, x, y, yaw, goal_handle):
+    def nav_to(self, x, y, yaw, goal_handle, watch_color=None):
         if not self.nav_client.wait_for_server(timeout_sec=1.0):
             self.get_logger().warn("Nav2 서버 없음")
             return None
@@ -333,6 +326,12 @@ class ColorSeeker(Node):
                 self.get_logger().warn("Nav2 이동 중 취소")
                 nav_handle.cancel_goal_async() # Nav2에게 "그만 가"라고 지시
                 return None
+            if watch_color is not None and watch_color in self.seen_pos:
+                self.get_logger().info(f"{watch_color} 보임, 둘러보기 멈추고 상자 앞으로")
+                nav_handle.cancel_goal_async()
+                while not result_future.done():
+                    time.sleep(0.1)
+                return "seen"
             if time.perf_counter() - last_feedback > 0.5:
                 feedback = GoToColor.Feedback()
                 feedback.pixel_count = self.pixel_count
@@ -346,6 +345,19 @@ class ColorSeeker(Node):
     def nav_feedback_callback(self, feedback_msg):
         self.nav_distance = feedback_msg.feedback.distance_remaining
 
+    def nav_to_box(self, color, goal_handle):
+        map_pose = self.get_map_pose()
+        if map_pose is None:
+            return None
+        rx, ry, _ = map_pose
+        bx, by = self.seen_pos[color]
+        yaw = math.atan2(by - ry, bx- rx)
+        gx = bx - 0.6 * math.cos(yaw)
+        gy = by -0.6 * math.sin(yaw) 
+        self.get_logger().info(f"Nav2로 {color} 앞 ({gx:.2f}, {gy:.2f}), yaw {yaw:.2f}")
+        status = self.nav_to(gx, gy, yaw, goal_handle)
+        self.get_logger().info(f"Nav2 결과: {status}")
+        return status
 
 def main(args=None):
     rclpy.init(args=args)
