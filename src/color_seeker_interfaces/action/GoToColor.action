@@ -3,3 +3,5 @@ string color
 bool success
 ---
 int32 pixel_count
+string state
+float32 distance_remaining

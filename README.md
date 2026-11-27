@@ -4,16 +4,16 @@ ROS2 (Jazzy) 학습 및 실습 기록입니다.
 
 ## 프로젝트: [color_seeker](src/color_seeker/README.md)
 
-**말로 시키면 그 색 물체를 찾아가는 로봇** (ROS 2 Jazzy + Gazebo Harmonic + 로컬 STT + 로컬 LLM)
+**말로 시키면 그 색 물체를 찾아가는 로봇** (ROS 2 Jazzy + Gazebo Harmonic + Nav2 + 로컬 STT + 로컬 LLM)
 
-말(로컬 STT, faster-whisper) 또는 키보드로 "빨간색으로 갔다가 파란색으로 가" → 로컬 LLM(Ollama)이 `["red", "blue"]`로 해석 → 액션 goal → 카메라로 색을 찾아 차례로 이동. 정지 명령 우선 처리, goal 취소/교체, 명령 해석 평가 24문장 92%.
+말(로컬 STT, faster-whisper) 또는 키보드로 "빨간색으로 갔다가 파란색으로 가" → 로컬 LLM(Ollama)이 `["red", "blue"]`로 해석 → 액션 goal → 카메라로 색을 찾아 차례로 이동. 정지 명령 우선 처리, goal 취소/교체, 명령 해석 평가 24문장 92%. 카메라 + 라이다 + tf로 본 상자의 지도 위치를 기억하고 Nav2로 방 두 개를 오가며 찾는다(Nav2 0.9m 67초 → 7초 원인 찾기, 찾는 시간 64.6초 → 32.0초).
 
 → [자세히 보기](src/color_seeker/README.md)
 
 ## 환경
 - Windows + WSL2 (Ubuntu 24.04), RTX 5060 Ti 16GB
 - ROS 2 Jazzy, Gazebo Harmonic (gz sim 8)
-- Python, OpenCV, Ollama (llama3.1:8b)
+- Python, OpenCV, Ollama (llama3.1:8b), Nav2, slam_toolbox
 
 ## 학습 과정
 
@@ -32,3 +32,4 @@ ROS2 (Jazzy) 학습 및 실습 기록입니다.
 | 9. Gazebo | inertial/collision, 캐스터, diff-drive 플러그인, ros_gz_bridge, 카메라 센서, 빨간 상자 따라가기(카메라 피드백 고리) | `gazebo_practice/g02~g04` |
 | 10. 재현 | 완성한 것을 빈 화면에서 다시 만들기(talker/listener, 패키지+launch, URDF 부품, follow 노드) | `review/`, `src/review_pkg` |
 | 11. 프로젝트 | 위 내용을 묶어 자연어 명령 → LLM → 액션 → 카메라 주행 | `src/color_seeker` |
+| 12. Nav2 | 라이다 → robot_state_publisher·/clock → slam_toolbox 지도 → Nav2 → navigate_to_pose client → color_seeker에 위치 기억·둘러보기 연결 | `src/color_seeker` (브랜치 nav2) |

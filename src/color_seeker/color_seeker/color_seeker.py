@@ -12,39 +12,53 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, LaserScan
 from cv_bridge import CvBridge
-from rclpy.action import ActionServer, CancelResponse
+from rclpy.action import ActionServer, CancelResponse, ActionClient
 from color_seeker_interfaces.action import GoToColor
 from nav_msgs.msg import Odometry
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
 from rcl_interfaces.msg import ParameterDescriptor
+from tf2_ros import Buffer, TransformListener, TransformException
+from nav2_msgs.action import NavigateToPose
 
 class ColorSeeker(Node):
     def __init__(self):
         super().__init__('color_seeker')
         self.subscription = self.create_subscription(Image, '/camera/image',self.color_seeker_callback, 1, callback_group=MutuallyExclusiveCallbackGroup())
-        self.odom_subscription = self.create_subscription(Odometry, "/model/stt_bot/odometry", self.odom_callback, 10, callback_group=MutuallyExclusiveCallbackGroup())
+        self.odom_subscription = self.create_subscription(Odometry, "/odom", self.odom_callback, 10, callback_group=MutuallyExclusiveCallbackGroup())
+        self.scan_subscription = self.create_subscription(LaserScan, "/scan", self.scan_callback, 10, callback_group=MutuallyExclusiveCallbackGroup())
         self.publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.nav_client = ActionClient(self, NavigateToPose, '/navigate_to_pose', callback_group=ReentrantCallbackGroup())
         self.bridge = CvBridge()
         self.action_server = ActionServer(self, GoToColor, "go_to_color", self.execute_callback, callback_group=ReentrantCallbackGroup(), cancel_callback=self.cancel_callback)
         self.declare_parameter("stop_count", 49000)
         self.declare_parameter("turn_speed", 0.3)
         self.declare_parameter("forward_speed", 0.2)
         self.declare_parameter("detector", "color", ParameterDescriptor(read_only=True)) # param set 거절됨
+        self.declare_parameter("search_turn_speed", 1.0)
+        self.declare_parameter("search_time", 10.0)
+        self.tf_buffer = Buffer() # Buffer는 들어온 tf를 쌓아두는 곳
+        self.tf_listener = TransformListener(self.tf_buffer, self) # TransformListener는 /tf를 구독해서 Buffer에 넣어 줌
         self.target_color = None
         self.pixel_count = 0
         self.arrived = False
         self.current_goal = None
+        self.scan = None
+        self.search_points = [(4.0, 0.0)]
         self.yaw = 0.0
+        self.x = 0.0
+        self.y = 0.0
         self.color_ranges = {"blue": (np.array([60, 0, 0]), np.array([255, 50, 50])), "green": (np.array([0, 60, 0]), np.array([50, 255, 50])), "red": (np.array([0, 0, 60]), np.array([50, 50, 255]),)}
         self.target_texts = {"blue": "blue box", "green": "green box", "red": "red box"}
         self.text_to_name = {text: name for name, text in self.target_texts.items()}
         self.get_logger().debug(f"{self.text_to_name}")
         self.last_time = None # None인 이유: 첫 콜백에는 "직전"이 없어서 빼기를 할 수 없음
+        self.seen_pos = {}
         self.seen_yaw = {}
         self.target_yaw = None # 0개 갈래와 멈춤 갈래: 각각 publish 전에 self.target_yaw = None 추가 b/c odometry가 예전 방향으로 계속 조종하지 않게 | cx 갈래: 1단계의 지역 변수 target_yaw를 self.target_yaw에 저장. 그 아래 cx로 왼쪽/오른쪽/직진을 정하고 publish하던 부분은 지움. 이제 그 일은 odometry 콜백이 함
         self.detector = self.get_parameter("detector").value
+        self.nav_distance = 0.0
         if self.detector == "owlv2":
             start = time.perf_counter()
             name = "google/owlv2-base-patch16-ensemble"
@@ -65,6 +79,7 @@ class ColorSeeker(Node):
             self.get_logger().debug(f"간격: {now - self.last_time:.2f}")
         self.last_time = now
         capture_yaw = self.yaw # sleep(=검출)동안 로봇이 돌아서 slef.yaw가 바뀌니까, 사진을 받은 순간의 yaw를 지역 변수에 먼저 적어둠. "찍었을 때 yaw"
+        map_pose = self.get_map_pose()
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8') # msg를 -> Opencv로 바꾸는 함수: imgmsg_to_cv2
         if self.detector == "owlv2":
             texts = list(self.target_texts.values())
@@ -93,11 +108,13 @@ class ColorSeeker(Node):
                     m_cx = m_xs.mean() # 물체가 가로 몇 번째 칸에 있나
                     direction = capture_yaw + (160 - m_cx) / 320 * 1.047 # 물체가 얼마나 벗어났는지 계산하는 자리
                     self.seen_yaw[name] = direction
+                    self.save_pos(name, m_cx, map_pose)
         self.get_logger().debug(f"seen: {self.seen_yaw}", throttle_duration_sec=1.0)
         if self.target_color is None or self.arrived == True:
             return
         stop_count = self.get_parameter("stop_count").value
         turn_speed = self.get_parameter("turn_speed").value
+        search_turn_speed = self.get_parameter("search_turn_speed").value
         forward_speed = self.get_parameter("forward_speed").value
         color = self.target_color # color = self.get_parameter("color").value 이제 색은 goal로 오니까 이 줄을 수첩에서 읽도록 바꾸기
         self.get_logger().debug(f"{frame.shape}", throttle_duration_sec=1.0)
@@ -127,6 +144,7 @@ class ColorSeeker(Node):
                 biggest = np.argmax(stats[1:, cv2.CC_STAT_AREA]) + 1 # 가장 큰 덩어리 번호 찾기
                 area = int(stats[biggest, cv2.CC_STAT_AREA])
                 cx = centroids[biggest][0]
+                self.save_pos(color, cx, map_pose)
                 self.target_yaw = capture_yaw + (160 - cx) / 320 * 1.047
                 self.get_logger().info(f"cx: {cx:.0f}, target_yaw: {self.target_yaw:.2f}", throttle_duration_sec=1.0) # .0f = 소수점 아래 0자리, .2f: 소수점 아래 2자리까지만 보여주는 형식
         self.pixel_count = area # 사진마다 칸 수를 수첩에 적음(지금까지 계산한 칸 수)
@@ -141,11 +159,11 @@ class ColorSeeker(Node):
                     self.get_logger().warn("기억한 방향에 없음, 다시 찾기")
                     del self.seen_yaw[color]
                 if diff > 0:
-                    cmd.angular.z = turn_speed
+                    cmd.angular.z = search_turn_speed
                 else:
-                    cmd.angular.z = -turn_speed
+                    cmd.angular.z = -search_turn_speed
             else:
-                cmd.angular.z = turn_speed # 반시계방향(왼쪽)으로 회전
+                cmd.angular.z = search_turn_speed # 반시계방향(왼쪽)으로 회전
             self.target_yaw = None
             self.publisher_.publish(cmd)
             return
@@ -162,12 +180,17 @@ class ColorSeeker(Node):
             result = GoToColor.Result()
             result.success = False
             return result
-            
+        color = goal_handle.request.color
+        self.get_logger().info(f"기억: {self.seen_pos}")
+        self.current_goal = goal_handle
+        if color in self.seen_pos:
+            self.nav_to_box(color, goal_handle)
         self.pixel_count = 0
         self.target_color = goal_handle.request.color
-        self.current_goal = goal_handle
         self.arrived = False
-        
+        search_time = self.get_parameter("search_time").value
+        search_start = time.perf_counter()
+        points = list(self.search_points)
         while not self.arrived:
             if self.current_goal is not goal_handle: # 다른 goal이 들어와서 이 goal은 더 이상 지금 goal이 아니라는 뜻, 해당 경우 target_color와 Twist를 건드리지 않고 goal_handle.abort() -> result success False -> return만 함. 공유하는 값은 이제 새 goal 것이니깐, 이렇게하면 client가 취소를 안 보내도 이전 goal이 스스로 끝남
                 goal_handle.abort()
@@ -183,8 +206,38 @@ class ColorSeeker(Node):
                 result = GoToColor.Result()
                 result.success = False
                 return result
+            if color not in self.seen_pos and time.perf_counter() - search_start > search_time:
+                if points:
+                    x, y = points.pop(0)
+                    self.target_color = None
+                    self.target_yaw = None
+                    cmd = Twist()
+                    self.publisher_.publish(cmd)
+                    self.get_logger().info(f"{color} 못 찾음, ({x}, {y})로 둘러보러 감")
+                    status = self.nav_to(x, y, 0.0, goal_handle, color)
+                    self.get_logger().info(f"Nav2 결과: {status}")
+                    if status == "seen":
+                        status = self.nav_to_box(color, goal_handle)
+                    if status is None:
+                        continue
+                    self.target_color = color
+                    search_start = time.perf_counter()
+                else:
+                    self.get_logger().warn(f"{color}: 둘러보기 지점을 다 돌았는데 없음")
+                    cmd = Twist()
+                    self.target_color = None
+                    self.target_yaw = None
+                    self.publisher_.publish(cmd)
+                    goal_handle.abort()
+                    result = GoToColor.Result()
+                    result.success = False
+                    return result
             feedback = GoToColor.Feedback()
             feedback.pixel_count = self.pixel_count
+            if self.pixel_count == 0:
+                feedback.state = "searching"
+            else:
+                feedback.state = "approaching"
             goal_handle.publish_feedback(feedback)
             time.sleep(0.5)
 
@@ -201,6 +254,8 @@ class ColorSeeker(Node):
         return CancelResponse.ACCEPT
 
     def odom_callback(self, msg):
+        self.x = msg.pose.pose.position.x
+        self.y = msg.pose.pose.position.y
         z = msg.pose.pose.orientation.z
         w = msg.pose.pose.orientation.w
         self.yaw = math.atan2(2*w*z, 1 - 2*(z**2))
@@ -218,6 +273,91 @@ class ColorSeeker(Node):
         self.publisher_.publish(cmd)            
         self.get_logger().debug(f"yaw: {self.yaw}", throttle_duration_sec=1.0)
 
+    def scan_callback(self, msg):
+        self.scan = msg
+
+    def save_pos(self, name, cx, map_pose):
+        angle = (160 -cx) /320 * 1.047
+        if self.scan is not None:
+            space_num = round((angle - self.scan.angle_min)/ self.scan.angle_increment)
+            distance = self.scan.ranges[space_num]
+            self.get_logger().debug(f"cx: {cx}, angle: {angle}, space_num: {space_num}, distance: {distance}", throttle_duration_sec=1.0)
+            if math.isfinite(distance) and map_pose is not None:
+                map_x, map_y, map_yaw = map_pose
+                box_x = map_x + distance * math.cos(map_yaw + angle)
+                box_y = map_y + distance * math.sin(map_yaw + angle)
+                self.seen_pos[name] = (box_x, box_y)
+                self.get_logger().debug(f"{name} 위치: ({box_x:.2f}, {box_y:.2f})", throttle_duration_sec=1.0)
+
+    def get_map_pose(self):
+        try:
+            t = self.tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time())
+        except TransformException:
+            return None
+        x = t.transform.translation.x
+        y = t.transform.translation.y
+        z = t.transform.rotation.z
+        w = t.transform.rotation.w
+        yaw = math.atan2(2*w*z, 1 - 2*(z**2))
+        return (x, y, yaw)
+
+    def nav_to(self, x, y, yaw, goal_handle, watch_color=None):
+        if not self.nav_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().warn("Nav2 서버 없음")
+            return None
+        self.nav_distance = 0.0
+        goal = NavigateToPose.Goal() # frame_id: "map", position: x, y
+        goal.pose.header.frame_id = "map"
+        goal.pose.pose.position.x = x
+        goal.pose.pose.position.y = y
+        goal.pose.pose.orientation.z = math.sin(yaw/2)
+        goal.pose.pose.orientation.w = math.cos(yaw/2)
+        future = self.nav_client.send_goal_async(goal, feedback_callback=self.nav_feedback_callback)
+        while not future.done():
+            time.sleep(0.1)
+        nav_handle = future.result()
+        if not nav_handle.accepted:
+            self.get_logger().warn("Nav2가 goal 거절")
+            return None
+        result_future = nav_handle.get_result_async()
+        last_feedback = time.perf_counter()
+        while not result_future.done():
+            if goal_handle.is_cancel_requested or self.current_goal is not goal_handle:
+                self.get_logger().warn("Nav2 이동 중 취소")
+                nav_handle.cancel_goal_async() # Nav2에게 "그만 가"라고 지시
+                return None
+            if watch_color is not None and watch_color in self.seen_pos:
+                self.get_logger().info(f"{watch_color} 보임, 둘러보기 멈추고 상자 앞으로")
+                nav_handle.cancel_goal_async()
+                while not result_future.done():
+                    time.sleep(0.1)
+                return "seen"
+            if time.perf_counter() - last_feedback > 0.5:
+                feedback = GoToColor.Feedback()
+                feedback.pixel_count = self.pixel_count
+                feedback.state = "navigating"
+                feedback.distance_remaining = self.nav_distance
+                goal_handle.publish_feedback(feedback)
+                last_feedback = time.perf_counter()
+            time.sleep(0.1)
+        return result_future.result().status
+
+    def nav_feedback_callback(self, feedback_msg):
+        self.nav_distance = feedback_msg.feedback.distance_remaining
+
+    def nav_to_box(self, color, goal_handle):
+        map_pose = self.get_map_pose()
+        if map_pose is None:
+            return None
+        rx, ry, _ = map_pose
+        bx, by = self.seen_pos[color]
+        yaw = math.atan2(by - ry, bx- rx)
+        gx = bx - 0.6 * math.cos(yaw)
+        gy = by -0.6 * math.sin(yaw) 
+        self.get_logger().info(f"Nav2로 {color} 앞 ({gx:.2f}, {gy:.2f}), yaw {yaw:.2f}")
+        status = self.nav_to(gx, gy, yaw, goal_handle)
+        self.get_logger().info(f"Nav2 결과: {status}")
+        return status
 
 def main(args=None):
     rclpy.init(args=args)

@@ -16,6 +16,10 @@ setup(
             ['urdf/robot.urdf']),
         ('share/color_seeker/worlds',
             ['worlds/world.sdf', 'worlds/red_box.sdf', 'worlds/blue_box.sdf', 'worlds/green_box.sdf']),
+        ('share/color_seeker/config',
+            ['config/slam_params.yaml', 'config/slam.rviz', 'config/nav2_params.yaml']),
+        ('share/color_seeker/maps',
+            ['maps/room.yaml', 'maps/room.pgm'])
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -31,7 +35,8 @@ setup(
     entry_points={
         'console_scripts': [
             "color_seeker = color_seeker.color_seeker:main", # "실행이름 = 패키지.파일:main"
-            "commander = color_seeker.commander:main"
+            "commander = color_seeker.commander:main",
+            "nav_client = color_seeker.nav_client:main"
         ],
     },
 )
